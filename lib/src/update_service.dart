@@ -67,9 +67,10 @@ class UpdateService {
 
     // Cache hit — already downloaded
     if (file.existsSync()) {
+      final len = await file.length();
       yield DownloadProgress(
-        received: await file.length(),
-        total: await file.length(),
+        received: len,
+        total: len,
         isComplete: true,
         filePath: file.path,
       );
@@ -84,6 +85,7 @@ class UpdateService {
       _dio.download(
         url,
         file.path,
+        deleteOnError: true,
         cancelToken: _cancelToken,
         onReceiveProgress: (received, total) {
           controller.add(DownloadProgress(
@@ -170,9 +172,7 @@ class UpdateService {
     base.listSync(recursive: true).whereType<File>().forEach((f) {
       total += f.lengthSync();
     });
-    if (total < 1024) return '$total B';
-    if (total < 1024 * 1024) return '${(total / 1024).toStringAsFixed(1)} KB';
-    return '${(total / 1024 / 1024).toStringAsFixed(1)} MB';
+    return formatBytes(total);
   }
 
   // ─── FORCE UPDATE PERSISTENCE ────────────────────────────────────
@@ -230,7 +230,9 @@ class UpdateService {
   }
 
   Future<Directory> _otaDir(String version) async {
-    final dir = Directory('${(await _otaBaseDir()).path}/$version');
+    // Sanitize version to prevent path traversal (e.g. "../../evil")
+    final safe = version.replaceAll(RegExp(r'[^a-zA-Z0-9._\-+]'), '_');
+    final dir = Directory('${(await _otaBaseDir()).path}/$safe');
     if (!dir.existsSync()) dir.createSync(recursive: true);
     return dir;
   }

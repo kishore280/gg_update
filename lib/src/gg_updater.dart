@@ -87,10 +87,10 @@ class GgUpdater {
 
     if (!context.mounted) return info;
 
-    // Persist hard updates so they survive app kill
+    // Persist hard updates so they survive app kill; clear stale ones
     if (info.status == UpdateStatus.hard) {
       await svc.savePendingUpdate(info);
-    } else if (info.status == UpdateStatus.none) {
+    } else {
       await svc.clearPendingUpdate();
     }
 

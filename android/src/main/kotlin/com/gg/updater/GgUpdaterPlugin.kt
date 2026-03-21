@@ -101,10 +101,7 @@ class GgUpdaterPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Activity
             setDataAndType(uri, "application/vnd.android.package-archive")
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
         }
-        if (intent.resolveActivity(ctx.packageManager) != null) {
-            ctx.startActivity(intent)
-        } else {
-            throw Exception("No activity found to handle APK install")
-        }
+        // Don't use resolveActivity — returns null on Android 11+ due to package visibility
+        ctx.startActivity(intent)
     }
 }

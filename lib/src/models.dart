@@ -73,3 +73,10 @@ class DownloadProgress {
   double get percent => total > 0 ? (received / total).clamp(0.0, 1.0) : 0.0;
   String get percentText => '${(percent * 100).toStringAsFixed(0)}%';
 }
+
+/// Format byte count as human-readable string.
+String formatBytes(int bytes) {
+  if (bytes < 1024) return '$bytes B';
+  if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
+  return '${(bytes / 1024 / 1024).toStringAsFixed(1)} MB';
+}

@@ -147,7 +147,7 @@ class _SoftUpdateSheetState extends State<SoftUpdateSheet> {
                 if (widget.info.fileSize != null) ...[
                   const SizedBox(height: 2),
                   Text(
-                    _formatSize(widget.info.fileSize!),
+                    formatBytes(widget.info.fileSize!),
                     style: theme.textTheme.bodySmall?.copyWith(
                       color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
                     ),
@@ -211,7 +211,7 @@ class _SoftUpdateSheetState extends State<SoftUpdateSheet> {
                             ClipRRect(
                               borderRadius: BorderRadius.circular(4),
                               child: TweenAnimationBuilder<double>(
-                                tween: Tween(end: _progress),
+                                tween: Tween(begin: 0, end: _progress),
                                 duration: const Duration(milliseconds: 350),
                                 curve: _spatialFast,
                                 builder: (_, value, __) => LinearProgressIndicator(value: value),
@@ -440,7 +440,7 @@ class _ForceUpdateScreenState extends State<ForceUpdateScreen> {
                             ClipRRect(
                               borderRadius: BorderRadius.circular(4),
                               child: TweenAnimationBuilder<double>(
-                                tween: Tween(end: _progress),
+                                tween: Tween(begin: 0, end: _progress),
                                 duration: const Duration(milliseconds: 350),
                                 curve: _spatialFast,
                                 builder: (_, value, __) => LinearProgressIndicator(value: value),
@@ -719,10 +719,3 @@ class _ShimmerOutlinePainter extends CustomPainter {
       old.progress != progress;
 }
 
-// ─── HELPER ─────────────────────────────────────────────────────────
-
-String _formatSize(int bytes) {
-  if (bytes < 1024) return '$bytes B';
-  if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
-  return '${(bytes / 1024 / 1024).toStringAsFixed(1)} MB';
-}
