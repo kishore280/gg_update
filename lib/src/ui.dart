@@ -34,7 +34,7 @@ class SoftUpdateSheet extends StatefulWidget {
       isDismissible: true,
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(28)), // M3 Expressive: larger radius
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
       builder: (_) => SoftUpdateSheet(info: info, service: service),
     );
@@ -99,179 +99,176 @@ class _SoftUpdateSheetState extends State<SoftUpdateSheet> {
   }
 
   String get _buttonLabel {
-    if (_downloading) return 'Cancel';
     if (_filePath != null) return 'Install now';
     if (_error != null) return 'Retry';
-    return 'Download update';
+    final size = widget.info.fileSize != null ? ' (${formatBytes(widget.info.fileSize!)})' : '';
+    return 'Download update$size';
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final cs = theme.colorScheme;
     final isIdle = !_downloading && _filePath == null;
+    final version = _stripVersionPrefix(widget.info.latestVersion);
 
-    return Padding(
-      padding: EdgeInsets.only(
-        bottom: MediaQuery.of(context).viewInsets.bottom,
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          const SizedBox(height: 12),
-          Center(
-            child: Container(
-              width: 40, height: 4,
-              decoration: BoxDecoration(
-                color: theme.colorScheme.onSurface.withValues(alpha: 0.3),
-                borderRadius: BorderRadius.circular(2),
+    return PopScope(
+      // Block dismiss during download (like Telegram's setCanceledOnTouchOutside(false))
+      canPop: !_downloading,
+      child: Padding(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.of(context).viewInsets.bottom,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const SizedBox(height: 12),
+            Center(
+              child: Container(
+                width: 40, height: 4,
+                decoration: BoxDecoration(
+                  color: cs.onSurface.withValues(alpha: 0.3),
+                  borderRadius: BorderRadius.circular(2),
+                ),
               ),
             ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Update available',
-                  style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w600),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  'v${widget.info.latestVersion}',
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
-                  ),
-                ),
-                if (widget.info.fileSize != null) ...[
-                  const SizedBox(height: 2),
+            Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
                   Text(
-                    formatBytes(widget.info.fileSize!),
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
+                    'Update available',
+                    style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w600),
+                  ),
+                  const SizedBox(height: 4),
+                  // Version + size on one line (like Telegram's subtitle)
+                  Text.rich(
+                    TextSpan(
+                      children: [
+                        TextSpan(text: version),
+                        if (widget.info.fileSize != null)
+                          TextSpan(
+                            text: '  ·  ${formatBytes(widget.info.fileSize!)}',
+                            style: TextStyle(color: cs.onSurface.withValues(alpha: 0.5)),
+                          ),
+                      ],
+                    ),
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: cs.onSurface.withValues(alpha: 0.6),
                     ),
                   ),
-                ],
-                if (widget.info.changelog != null) ...[
-                  const SizedBox(height: 16),
-                  Text(
-                    'What\'s new',
-                    style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
-                  ),
-                  const SizedBox(height: 8),
-                  ConstrainedBox(
-                    constraints: const BoxConstraints(maxHeight: 200),
-                    child: SingleChildScrollView(
+
+                  if (widget.info.changelog != null) ...[
+                    const SizedBox(height: 16),
+                    Text(
+                      'What\'s new',
+                      style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
+                    ),
+                    const SizedBox(height: 8),
+                    // Changelog with gradient scroll fade (like Telegram's gradientDrawable)
+                    _ScrollFadeBox(
+                      maxHeight: 200,
+                      fadeColor: theme.dialogBackgroundColor,
                       child: Text(
                         widget.info.changelog!,
                         style: theme.textTheme.bodyMedium,
                       ),
                     ),
+                  ],
+
+                  if (widget.info.message != null) ...[
+                    const SizedBox(height: 12),
+                    Text(
+                      widget.info.message!,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: cs.primary,
+                      ),
+                    ),
+                  ],
+
+                  // Animated error text
+                  AnimatedSize(
+                    duration: const Duration(milliseconds: 200),
+                    curve: _effectsDefault,
+                    child: _error != null
+                        ? Padding(
+                            padding: const EdgeInsets.only(top: 12),
+                            child: Text(
+                              _error!,
+                              style: theme.textTheme.bodySmall?.copyWith(color: cs.error),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          )
+                        : const SizedBox.shrink(),
                   ),
-                ],
-                if (widget.info.message != null) ...[
-                  const SizedBox(height: 12),
-                  Text(
-                    widget.info.message!,
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: theme.colorScheme.primary,
+
+                  const SizedBox(height: 20),
+
+                  // Action button — progress inside button (like Telegram's BlockingUpdateView)
+                  SizedBox(
+                    width: double.infinity,
+                    height: 48,
+                    child: _ButtonWithShimmer(
+                      showShimmer: isIdle,
+                      child: FilledButton(
+                        onPressed: _downloading
+                            ? _cancelDownload
+                            : _filePath != null
+                                ? _install
+                                : _startDownload,
+                        style: FilledButton.styleFrom(
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          backgroundColor: _downloading ? cs.error : null,
+                        ),
+                        child: _InButtonProgress(
+                          downloading: _downloading,
+                          progress: _progress,
+                          label: _buttonLabel,
+                        ),
+                      ),
                     ),
                   ),
-                ],
 
-                // Animated error text (M3 effects spring)
-                AnimatedSize(
-                  duration: const Duration(milliseconds: 200),
-                  curve: _effectsDefault,
-                  child: _error != null
-                      ? Padding(
-                          padding: const EdgeInsets.only(top: 12),
-                          child: Text(
-                            _error!,
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: theme.colorScheme.error,
-                            ),
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        )
-                      : const SizedBox.shrink(),
-                ),
-
-                const SizedBox(height: 20),
-
-                // Animated progress section (M3 spatial spring — bouncy)
-                AnimatedSize(
-                  duration: const Duration(milliseconds: 500),
-                  curve: _spatialDefault,
-                  child: _downloading
-                      ? Column(
-                          children: [
-                            ClipRRect(
-                              borderRadius: BorderRadius.circular(4),
-                              child: TweenAnimationBuilder<double>(
-                                tween: Tween(begin: 0, end: _progress),
-                                duration: const Duration(milliseconds: 350),
-                                curve: _spatialFast,
-                                builder: (_, value, __) => LinearProgressIndicator(value: value),
+                  const SizedBox(height: 8),
+                  // "Later" button — accent text, no background (like Telegram's scheduleButton)
+                  AnimatedSize(
+                    duration: const Duration(milliseconds: 350),
+                    curve: _spatialFast,
+                    child: _downloading
+                        ? const SizedBox.shrink()
+                        : SizedBox(
+                            width: double.infinity,
+                            height: 48,
+                            child: TextButton(
+                              onPressed: () => Navigator.pop(context),
+                              style: TextButton.styleFrom(
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                              ),
+                              child: Text(
+                                'Later',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w500,
+                                  color: cs.primary,
+                                ),
                               ),
                             ),
-                            const SizedBox(height: 8),
-                            Text(
-                              'Downloading... ${(_progress * 100).toStringAsFixed(0)}%',
-                              style: theme.textTheme.bodySmall,
-                            ),
-                            const SizedBox(height: 12),
-                          ],
-                        )
-                      : const SizedBox.shrink(),
-                ),
-
-                // Action button with shimmer + animated text
-                SizedBox(
-                  width: double.infinity,
-                  child: _ButtonWithShimmer(
-                    showShimmer: isIdle,
-                    child: FilledButton(
-                      onPressed: _downloading
-                          ? _cancelDownload
-                          : _filePath != null
-                              ? _install
-                              : _startDownload,
-                      style: _downloading
-                          ? FilledButton.styleFrom(backgroundColor: theme.colorScheme.error)
-                          : null,
-                      child: _AnimatedButtonText(label: _buttonLabel),
-                    ),
-                  ),
-                ),
-
-                const SizedBox(height: 8),
-                AnimatedSize(
-                  duration: const Duration(milliseconds: 350),
-                  curve: _spatialFast,
-                  child: _downloading
-                      ? const SizedBox.shrink()
-                      : SizedBox(
-                          width: double.infinity,
-                          child: TextButton(
-                            onPressed: () => Navigator.pop(context),
-                            child: const Text('Later'),
                           ),
-                        ),
-                ),
-              ],
+                  ),
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
 }
 
 // ─── FORCE UPDATE SCREEN ────────────────────────────────────────────
-// Fullscreen. Non-dismissible. Like AyuGram's BlockingUpdateView.
+// Fullscreen. Non-dismissible. Like Telegram's BlockingUpdateView.
 // Back button disabled. Only way out is to install.
 
 class ForceUpdateScreen extends StatefulWidget {
@@ -293,7 +290,7 @@ class _ForceUpdateScreenState extends State<ForceUpdateScreen> {
   double _progress = 0;
   String? _filePath;
   String? _error;
-  int _tapCount = 0; // AyuGram's 10-tap escape hatch
+  int _tapCount = 0;
   StreamSubscription<DownloadProgress>? _downloadSub;
 
   @override
@@ -344,19 +341,21 @@ class _ForceUpdateScreenState extends State<ForceUpdateScreen> {
   }
 
   String get _buttonLabel {
-    if (_downloading) return 'Cancel';
     if (_filePath != null) return 'Install now';
     if (_error != null) return 'Retry';
-    return 'Download update';
+    final size = widget.info.fileSize != null ? ' (${formatBytes(widget.info.fileSize!)})' : '';
+    return 'Update$size';
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final cs = theme.colorScheme;
     final isIdle = !_downloading && _filePath == null;
+    final version = _stripVersionPrefix(widget.info.latestVersion);
 
     return PopScope(
-      canPop: false, // Block back button
+      canPop: false,
       child: Scaffold(
         body: SafeArea(
           child: Padding(
@@ -366,7 +365,7 @@ class _ForceUpdateScreenState extends State<ForceUpdateScreen> {
               children: [
                 const Spacer(flex: 2),
 
-                // Tap 10 times to bypass (dev escape hatch)
+                // Tap 10 times to bypass (dev escape hatch, like Telegram's BlockingUpdateView)
                 GestureDetector(
                   onTap: () {
                     _tapCount++;
@@ -375,10 +374,11 @@ class _ForceUpdateScreenState extends State<ForceUpdateScreen> {
                       Navigator.of(context).pop();
                     }
                   },
+                  // Larger icon like Telegram's 108dp Lottie
                   child: Icon(
-                    Icons.system_update,
-                    size: 80,
-                    color: theme.colorScheme.primary,
+                    Icons.system_update_rounded,
+                    size: 108,
+                    color: cs.primary,
                   ),
                 ),
 
@@ -387,30 +387,38 @@ class _ForceUpdateScreenState extends State<ForceUpdateScreen> {
                   'Update required',
                   style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w600),
                 ),
+                const SizedBox(height: 8),
+                // Version subtitle (like Telegram's version + size line)
+                Text(
+                  '$version${widget.info.fileSize != null ? '  ·  ${formatBytes(widget.info.fileSize!)}' : ''}',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: cs.onSurface.withValues(alpha: 0.5),
+                  ),
+                ),
                 const SizedBox(height: 12),
                 Text(
-                  widget.info.message ?? 'Please update to version ${widget.info.latestVersion} to continue using the app.',
+                  widget.info.message ?? 'Please update to continue using the app.',
                   textAlign: TextAlign.center,
                   style: theme.textTheme.bodyLarge?.copyWith(
-                    color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
+                    color: cs.onSurface.withValues(alpha: 0.7),
                   ),
                 ),
 
                 if (widget.info.changelog != null) ...[
                   const SizedBox(height: 20),
-                  ConstrainedBox(
-                    constraints: const BoxConstraints(maxHeight: 180),
-                    child: SingleChildScrollView(
-                      child: Text(
-                        widget.info.changelog!,
-                        textAlign: TextAlign.center,
-                        style: theme.textTheme.bodyMedium,
-                      ),
+                  // Changelog with gradient scroll fade (like Telegram's top/bottom gradients)
+                  _ScrollFadeBox(
+                    maxHeight: 180,
+                    fadeColor: theme.scaffoldBackgroundColor,
+                    child: Text(
+                      widget.info.changelog!,
+                      textAlign: TextAlign.center,
+                      style: theme.textTheme.bodyMedium,
                     ),
                   ),
                 ],
 
-                // Animated error text (M3 effects spring)
+                // Animated error text
                 AnimatedSize(
                   duration: const Duration(milliseconds: 200),
                   curve: _effectsDefault,
@@ -419,7 +427,7 @@ class _ForceUpdateScreenState extends State<ForceUpdateScreen> {
                           padding: const EdgeInsets.only(top: 16),
                           child: Text(
                             _error!,
-                            style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.error),
+                            style: theme.textTheme.bodySmall?.copyWith(color: cs.error),
                             textAlign: TextAlign.center,
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
@@ -430,31 +438,7 @@ class _ForceUpdateScreenState extends State<ForceUpdateScreen> {
 
                 const Spacer(),
 
-                // Animated progress section (M3 spatial spring — bouncy)
-                AnimatedSize(
-                  duration: const Duration(milliseconds: 500),
-                  curve: _spatialDefault,
-                  child: _downloading
-                      ? Column(
-                          children: [
-                            ClipRRect(
-                              borderRadius: BorderRadius.circular(4),
-                              child: TweenAnimationBuilder<double>(
-                                tween: Tween(begin: 0, end: _progress),
-                                duration: const Duration(milliseconds: 350),
-                                curve: _spatialFast,
-                                builder: (_, value, __) => LinearProgressIndicator(value: value),
-                              ),
-                            ),
-                            const SizedBox(height: 12),
-                            Text('Downloading... ${(_progress * 100).toStringAsFixed(0)}%'),
-                            const SizedBox(height: 20),
-                          ],
-                        )
-                      : const SizedBox.shrink(),
-                ),
-
-                // Action button with shimmer + animated text
+                // Action button — in-button progress (like Telegram's radialProgress crossfade)
                 SizedBox(
                   width: double.infinity,
                   height: 52,
@@ -466,12 +450,15 @@ class _ForceUpdateScreenState extends State<ForceUpdateScreen> {
                           : _filePath != null
                               ? _install
                               : _startDownload,
-                      style: _downloading
-                          ? FilledButton.styleFrom(backgroundColor: theme.colorScheme.error)
-                          : null,
-                      child: _AnimatedButtonText(
+                      style: FilledButton.styleFrom(
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        backgroundColor: _downloading ? cs.error : null,
+                      ),
+                      child: _InButtonProgress(
+                        downloading: _downloading,
+                        progress: _progress,
                         label: _buttonLabel,
-                        style: const TextStyle(fontSize: 16),
+                        textStyle: const TextStyle(fontSize: 16),
                       ),
                     ),
                   ),
@@ -498,6 +485,7 @@ class MaintenanceScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final cs = theme.colorScheme;
     return PopScope(
       canPop: false,
       child: Scaffold(
@@ -509,9 +497,9 @@ class MaintenanceScreen extends StatelessWidget {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Icon(
-                    Icons.construction,
-                    size: 80,
-                    color: theme.colorScheme.tertiary,
+                    Icons.construction_rounded,
+                    size: 108,
+                    color: cs.tertiary,
                   ),
                   const SizedBox(height: 24),
                   Text(
@@ -523,7 +511,7 @@ class MaintenanceScreen extends StatelessWidget {
                     info.maintenanceMessage ?? 'The app is currently under maintenance. Please try again later.',
                     textAlign: TextAlign.center,
                     style: theme.textTheme.bodyLarge?.copyWith(
-                      color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
+                      color: cs.onSurface.withValues(alpha: 0.7),
                     ),
                   ),
                 ],
@@ -536,39 +524,99 @@ class MaintenanceScreen extends StatelessWidget {
   }
 }
 
-// ─── ANIMATED BUTTON TEXT ────────────────────────────────────────────
-// Telegram-style crossfade with M3 Expressive motion:
-// old text slides up + fades out, new text slides up from below + fades in.
-// Uses spatial spring for position (bouncy) and effects spring for opacity.
+// ─── IN-BUTTON PROGRESS ─────────────────────────────────────────────
+// Like Telegram's BlockingUpdateView: button text crossfades to circular
+// progress indicator, then back to "Install" when done.
+// Crossfade: 150ms (Telegram uses 150ms with linear interpolator).
 
-class _AnimatedButtonText extends StatelessWidget {
+class _InButtonProgress extends StatelessWidget {
+  final bool downloading;
+  final double progress;
   final String label;
-  final TextStyle? style;
+  final TextStyle? textStyle;
 
-  const _AnimatedButtonText({required this.label, this.style});
+  const _InButtonProgress({
+    required this.downloading,
+    required this.progress,
+    required this.label,
+    this.textStyle,
+  });
 
   @override
   Widget build(BuildContext context) {
     return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 350),
-      switchInCurve: _spatialFast,
+      duration: const Duration(milliseconds: 150),
+      switchInCurve: _effectsFast,
       switchOutCurve: _effectsFast,
       transitionBuilder: (child, animation) {
         return FadeTransition(
-          opacity: CurvedAnimation(parent: animation, curve: _effectsFast),
-          child: SlideTransition(
-            position: Tween<Offset>(
-              begin: const Offset(0, 0.5),
-              end: Offset.zero,
-            ).animate(CurvedAnimation(parent: animation, curve: _spatialFast)),
+          opacity: animation,
+          child: ScaleTransition(
+            scale: Tween<double>(begin: 0.8, end: 1.0).animate(
+              CurvedAnimation(parent: animation, curve: _effectsFast),
+            ),
             child: child,
           ),
         );
       },
-      child: Text(
-        label,
-        key: ValueKey(label),
-        style: style,
+      child: downloading
+          ? SizedBox(
+              key: const ValueKey('progress'),
+              width: 24,
+              height: 24,
+              child: CircularProgressIndicator(
+                value: progress > 0 ? progress : null,
+                strokeWidth: 2.5,
+                color: Theme.of(context).colorScheme.onError,
+              ),
+            )
+          : Text(
+              label,
+              key: ValueKey(label),
+              style: textStyle,
+            ),
+    );
+  }
+}
+
+// ─── SCROLL FADE BOX ────────────────────────────────────────────────
+// Like Telegram's gradientDrawableTop/Bottom on BlockingUpdateView.
+// Renders top and bottom gradient fades over scrollable content.
+
+class _ScrollFadeBox extends StatelessWidget {
+  final double maxHeight;
+  final Color fadeColor;
+  final Widget child;
+
+  const _ScrollFadeBox({
+    required this.maxHeight,
+    required this.fadeColor,
+    required this.child,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ConstrainedBox(
+      constraints: BoxConstraints(maxHeight: maxHeight),
+      child: ShaderMask(
+        shaderCallback: (bounds) {
+          return LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              Colors.transparent,
+              Colors.white,
+              Colors.white,
+              Colors.transparent,
+            ],
+            stops: const [0.0, 0.06, 0.92, 1.0],
+          ).createShader(bounds);
+        },
+        blendMode: BlendMode.dstIn,
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: child,
+        ),
       ),
     );
   }
@@ -578,8 +626,9 @@ class _AnimatedButtonText extends StatelessWidget {
 // Matches Telegram's CellFlickerDrawable:
 // - Flat horizontal sweep (no diagonal)
 // - 1200ms sweep + ~240ms pause (repeatProgress 1.2)
-// - Fill layer (alpha 64) + brighter outline stroke (alpha 204)
+// - Fill layer + brighter outline stroke
 // - 160dp-wide gradient band, enters/exits off-screen
+// Now theme-aware: uses primary color tint instead of hardcoded white.
 
 class _ButtonWithShimmer extends StatefulWidget {
   final Widget child;
@@ -595,7 +644,6 @@ class _ButtonWithShimmerState extends State<_ButtonWithShimmer>
     with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
 
-  // repeatProgress > 1.0 adds a pause between sweeps (Telegram uses 1.2)
   static const _repeatProgress = 1.2;
 
   @override
@@ -603,7 +651,6 @@ class _ButtonWithShimmerState extends State<_ButtonWithShimmer>
     super.initState();
     _controller = AnimationController(
       vsync: this,
-      // Total cycle = sweep + pause. Sweep is 1200ms, full cycle = 1200 * 1.2 = 1440ms
       duration: const Duration(milliseconds: 1440),
     );
     if (widget.showShimmer) _controller.repeat();
@@ -629,35 +676,34 @@ class _ButtonWithShimmerState extends State<_ButtonWithShimmer>
   Widget build(BuildContext context) {
     if (!widget.showShimmer) return widget.child;
 
+    // Theme-aware shimmer: use onPrimary color (works in both light/dark mode)
+    final shimmerColor = Theme.of(context).colorScheme.onPrimary;
+
     return AnimatedBuilder(
       animation: _controller,
       child: widget.child,
       builder: (context, child) {
-        // Map progress so shimmer only moves during 0..1/repeatProgress of the cycle
         final raw = _controller.value * _repeatProgress;
         final progress = raw.clamp(0.0, 1.0);
-
-        // Sweep from off-screen left to off-screen right (like Telegram)
-        // pos goes from -1.5 to 2.5 so the 160dp band fully enters and exits
         final pos = progress * 4.0 - 1.5;
 
         return Stack(
           children: [
             child!,
-            // Fill layer (alpha 64)
+            // Fill layer (alpha ~25%)
             Positioned.fill(
               child: IgnorePointer(
                 child: ClipRRect(
-                  borderRadius: BorderRadius.circular(100),
+                  borderRadius: BorderRadius.circular(12),
                   child: DecoratedBox(
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
                         begin: Alignment(pos - 0.4, 0),
                         end: Alignment(pos + 0.4, 0),
-                        colors: const [
-                          Color(0x00FFFFFF),
-                          Color(0x40FFFFFF), // alpha 64
-                          Color(0x00FFFFFF),
+                        colors: [
+                          shimmerColor.withValues(alpha: 0),
+                          shimmerColor.withValues(alpha: 0.25),
+                          shimmerColor.withValues(alpha: 0),
                         ],
                       ),
                     ),
@@ -665,13 +711,14 @@ class _ButtonWithShimmerState extends State<_ButtonWithShimmer>
                 ),
               ),
             ),
-            // Outline layer (alpha 204) — brighter stroke on edges
+            // Outline layer (alpha ~80%)
             Positioned.fill(
               child: IgnorePointer(
                 child: CustomPaint(
                   painter: _ShimmerOutlinePainter(
                     progress: progress,
                     pos: pos,
+                    color: shimmerColor,
                   ),
                 ),
               ),
@@ -686,23 +733,24 @@ class _ButtonWithShimmerState extends State<_ButtonWithShimmer>
 class _ShimmerOutlinePainter extends CustomPainter {
   final double progress;
   final double pos;
+  final Color color;
 
-  _ShimmerOutlinePainter({required this.progress, required this.pos});
+  _ShimmerOutlinePainter({required this.progress, required this.pos, required this.color});
 
   @override
   void paint(Canvas canvas, Size size) {
     final rect = RRect.fromRectAndRadius(
       Offset.zero & size,
-      const Radius.circular(100),
+      const Radius.circular(12),
     );
 
     final gradient = LinearGradient(
       begin: Alignment(pos - 0.4, 0),
       end: Alignment(pos + 0.4, 0),
-      colors: const [
-        Color(0x00FFFFFF),
-        Color(0xCCFFFFFF), // alpha 204
-        Color(0x00FFFFFF),
+      colors: [
+        color.withValues(alpha: 0),
+        color.withValues(alpha: 0.8),
+        color.withValues(alpha: 0),
       ],
     );
 
@@ -719,3 +767,12 @@ class _ShimmerOutlinePainter extends CustomPainter {
       old.progress != progress;
 }
 
+// ─── HELPERS ─────────────────────────────────────────────────────────
+
+/// Strip "v" or "V" prefix from version strings for display.
+String _stripVersionPrefix(String? version) {
+  if (version == null) return '';
+  final v = version.trim();
+  if (v.startsWith('v') || v.startsWith('V')) return v.substring(1);
+  return v;
+}

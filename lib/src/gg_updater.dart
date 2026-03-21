@@ -16,6 +16,7 @@ class GgUpdater {
   static UpdateService? _service;
   static Duration _cooldown = const Duration(hours: 1);
   static int _lastCheckMs = 0;
+  static bool _cooldownLoaded = false;
 
   /// Initialize once, reuse everywhere.
   static void init({
@@ -62,33 +63,49 @@ class GgUpdater {
           dio: dio,
         );
 
-    // Re-show persisted force update (survives app kill, like Telegram's pendingAppUpdate)
+    // Re-show persisted blocking state (survives app kill, like Telegram's pendingAppUpdate)
     final pending = await svc.loadPendingUpdate();
-    if (pending != null && pending.status == UpdateStatus.hard && context.mounted) {
-      Navigator.of(context).push(
-        MaterialPageRoute(
-          fullscreenDialog: true,
-          builder: (_) => ForceUpdateScreen(info: pending, service: svc),
-        ),
-      );
-      return pending;
+    if (pending != null && context.mounted) {
+      if (pending.status == UpdateStatus.hard) {
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            fullscreenDialog: true,
+            builder: (_) => ForceUpdateScreen(info: pending, service: svc),
+          ),
+        );
+        return pending;
+      }
+      if (pending.status == UpdateStatus.maintenance) {
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            fullscreenDialog: true,
+            builder: (_) => MaintenanceScreen(info: pending),
+          ),
+        );
+        return pending;
+      }
     }
 
-    // Cooldown check (like AyuGram's 1hr interval)
+    // Cooldown check — persisted to disk like AyuGram's lastUpdateCheckTime
     if (respectCooldown) {
+      if (!_cooldownLoaded) {
+        _lastCheckMs = await svc.loadLastCheckTime();
+        _cooldownLoaded = true;
+      }
       final now = DateTime.now().millisecondsSinceEpoch;
       if (now - _lastCheckMs < _cooldown.inMilliseconds) {
         return UpdateInfo.none();
       }
       _lastCheckMs = now;
+      await svc.saveLastCheckTime(now);
     }
 
     final info = await svc.check();
 
     if (!context.mounted) return info;
 
-    // Persist hard updates so they survive app kill; clear stale ones
-    if (info.status == UpdateStatus.hard) {
+    // Persist blocking states so they survive app kill; clear stale ones
+    if (info.status == UpdateStatus.hard || info.status == UpdateStatus.maintenance) {
       await svc.savePendingUpdate(info);
     } else {
       await svc.clearPendingUpdate();

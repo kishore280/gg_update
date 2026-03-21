@@ -20,6 +20,7 @@ class UpdateService {
 
   String? _currentVersion;
   CancelToken? _cancelToken;
+  String? _activeDownloadVersion;
 
   UpdateService({
     required this.endpoint,
@@ -65,7 +66,7 @@ class UpdateService {
     final dir = await _otaDir(version);
     final file = File('${dir.path}/update.apk');
 
-    // Cache hit — already downloaded
+    // Cache hit — already downloaded (like AyuGram's updateDownloaded check)
     if (file.existsSync()) {
       final len = await file.length();
       yield DownloadProgress(
@@ -77,7 +78,11 @@ class UpdateService {
       return;
     }
 
+    // Clean old version caches before downloading new one
+    await _cleanOldVersions(version);
+
     _cancelToken = CancelToken();
+    _activeDownloadVersion = version;
 
     try {
       final controller = StreamController<DownloadProgress>();
@@ -109,9 +114,10 @@ class UpdateService {
             return;
           }
         }
+        final len = await file.length();
         controller.add(DownloadProgress(
-          received: 1,
-          total: 1,
+          received: len,
+          total: len,
           isComplete: true,
           filePath: file.path,
         ));
@@ -120,21 +126,31 @@ class UpdateService {
         controller.add(DownloadProgress(
           received: 0,
           total: 0,
-          error: e.toString(),
+          error: _friendlyError(e),
         ));
         controller.close();
       });
 
       yield* controller.stream;
     } catch (e) {
-      yield DownloadProgress(received: 0, total: 0, error: e.toString());
+      yield DownloadProgress(received: 0, total: 0, error: _friendlyError(e));
+    } finally {
+      _activeDownloadVersion = null;
     }
   }
 
-  /// Cancel an in-progress download.
+  /// Cancel an in-progress download and clean up partial file.
   void cancelDownload() {
     _cancelToken?.cancel('User cancelled');
     _cancelToken = null;
+    // Clean partial file (deleteOnError handles Dio errors, but belt-and-suspenders)
+    if (_activeDownloadVersion != null) {
+      _otaDir(_activeDownloadVersion!).then((dir) {
+        final file = File('${dir.path}/update.apk');
+        if (file.existsSync()) file.deleteSync();
+      }).catchError((_) {});
+      _activeDownloadVersion = null;
+    }
   }
 
   // ─── INSTALL ──────────────────────────────────────────────────────
@@ -222,6 +238,28 @@ class UpdateService {
     if (file.existsSync()) file.deleteSync();
   }
 
+  // ─── COOLDOWN PERSISTENCE ────────────────────────────────────────
+  // Like AyuGram's ExteraConfig.lastUpdateCheckTime in SharedPreferences.
+  // Survives app restart so we don't spam the server on every cold start.
+
+  /// Save the last check timestamp to disk.
+  Future<void> saveLastCheckTime(int timestampMs) async {
+    final base = await _otaBaseDir();
+    if (!base.existsSync()) base.createSync(recursive: true);
+    File('${base.path}/last_check.txt').writeAsStringSync('$timestampMs');
+  }
+
+  /// Load the last check timestamp from disk. Returns 0 if none.
+  Future<int> loadLastCheckTime() async {
+    final file = File('${(await _otaBaseDir()).path}/last_check.txt');
+    if (!file.existsSync()) return 0;
+    try {
+      return int.parse(file.readAsStringSync().trim());
+    } catch (_) {
+      return 0;
+    }
+  }
+
   // ─── INTERNAL ─────────────────────────────────────────────────────
 
   Future<Directory> _otaBaseDir() async {
@@ -235,5 +273,40 @@ class UpdateService {
     final dir = Directory('${(await _otaBaseDir()).path}/$safe');
     if (!dir.existsSync()) dir.createSync(recursive: true);
     return dir;
+  }
+
+  /// Delete cached APKs for versions other than [keepVersion].
+  Future<void> _cleanOldVersions(String keepVersion) async {
+    final base = await _otaBaseDir();
+    if (!base.existsSync()) return;
+    final safe = keepVersion.replaceAll(RegExp(r'[^a-zA-Z0-9._\-+]'), '_');
+    for (final entity in base.listSync()) {
+      if (entity is Directory && entity.path.split('/').last != safe) {
+        try {
+          entity.deleteSync(recursive: true);
+        } catch (_) {}
+      }
+    }
+  }
+
+  /// Convert raw errors to user-friendly messages.
+  static String _friendlyError(dynamic e) {
+    if (e is DioException) {
+      switch (e.type) {
+        case DioExceptionType.connectionTimeout:
+        case DioExceptionType.sendTimeout:
+        case DioExceptionType.receiveTimeout:
+          return 'Connection timed out. Please check your internet and try again.';
+        case DioExceptionType.connectionError:
+          return 'No internet connection. Please check your network and try again.';
+        case DioExceptionType.cancel:
+          return 'Download cancelled.';
+        case DioExceptionType.badResponse:
+          return 'Server error (${e.response?.statusCode ?? 'unknown'}). Please try again later.';
+        default:
+          return 'Download failed. Please try again.';
+      }
+    }
+    return 'Download failed. Please try again.';
   }
 }
