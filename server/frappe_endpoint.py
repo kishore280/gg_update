@@ -1,19 +1,26 @@
 # Paste this into your Frappe custom app:
 # e.g., gg_multisite_sync/api/app_update.py
 #
-# Then create a Single DocType called "App Update Config" with fields:
-#   - android_latest_version (Data) e.g., "2.1.0"
-#   - android_min_version (Data) e.g., "1.8.0"
-#   - android_download_url (Data) e.g., "https://cdn.gg.com/pos-2.1.0.apk"
-#   - android_file_size (Int) e.g., 45678901
-#   - android_sha256 (Data) e.g., "a1b2c3..." (SHA256 hash of the APK)
+# DocType: "App Release" (regular, NOT Single)
+# Fields:
+#   - version (Data, reqd) e.g., "2.1.0" — used as name/title
+#   - min_version (Data) e.g., "1.8.0" — versions below this get force update
+#   - download_url (Data, reqd) e.g., "https://cdn.gg.com/pos-2.1.0.apk"
+#   - file_size (Int) e.g., 45678901
+#   - sha256 (Data) e.g., "a1b2c3..."
 #   - changelog (Small Text)
-#   - force_update_message (Small Text)
-#   - soft_update_message (Small Text)
+#   - update_message (Small Text)
+#   - force_update (Check) — mark this release as mandatory
+#   - enabled (Check, default 1) — uncheck to hide a release
+#
+# Single DocType: "App Update Settings" (for global toggles)
+# Fields:
+#   - active_release (Link -> App Release) — pick which release to serve
 #   - maintenance_mode (Check)
 #   - maintenance_message (Small Text)
 
 import frappe
+
 
 @frappe.whitelist(allow_guest=True, methods=["GET"])
 def check_update(platform="android", version="0.0.0"):
@@ -23,46 +30,54 @@ def check_update(platform="android", version="0.0.0"):
 
     Returns JSON that gg_updater Flutter package expects.
     """
-    config = frappe.get_single("App Update Config")
+    settings = frappe.get_single("App Update Settings")
 
     # Maintenance mode — blocks everything
-    if config.maintenance_mode:
+    if settings.maintenance_mode:
         return {
             "status": "maintenance",
-            "maintenance_message": config.maintenance_message or "App is under maintenance. Please try again later.",
+            "maintenance_message": settings.maintenance_message
+            or "App is under maintenance. Please try again later.",
         }
 
+    # Use the release picked in settings, fallback to latest enabled
+    if settings.active_release:
+        release = frappe.get_doc("App Release", settings.active_release)
+    else:
+        releases = frappe.get_all(
+            "App Release",
+            filters={"enabled": 1},
+            fields=["name"],
+            order_by="creation desc",
+            limit=1,
+        )
+        if not releases:
+            return {"status": "none"}
+        release = frappe.get_doc("App Release", releases[0].name)
+
+    if not release.enabled:
+        return {"status": "none"}
     client_v = _parse_version(version)
-    min_v = _parse_version(config.android_min_version or "0.0.0")
-    latest_v = _parse_version(config.android_latest_version or "0.0.0")
+    latest_v = _parse_version(release.version)
 
-    # Force update — below minimum version
-    if client_v < min_v:
-        return {
-            "status": "hard",
-            "latest_version": config.android_latest_version,
-            "min_version": config.android_min_version,
-            "download_url": config.android_download_url,
-            "file_size": config.android_file_size,
-            "sha256": config.android_sha256,
-            "changelog": config.changelog,
-            "message": config.force_update_message or "Please update to continue.",
-        }
+    # Already up to date
+    if client_v >= latest_v:
+        return {"status": "none"}
 
-    # Soft update — newer version available
-    if client_v < latest_v:
-        return {
-            "status": "soft",
-            "latest_version": config.android_latest_version,
-            "download_url": config.android_download_url,
-            "file_size": config.android_file_size,
-            "sha256": config.android_sha256,
-            "changelog": config.changelog,
-            "message": config.soft_update_message,
-        }
+    # Force update — either release is marked force, or client is below min_version
+    min_v = _parse_version(release.min_version or "0.0.0")
+    is_force = release.force_update or client_v < min_v
 
-    # Up to date
-    return {"status": "none"}
+    return {
+        "status": "hard" if is_force else "soft",
+        "latest_version": release.version,
+        "min_version": release.min_version,
+        "download_url": release.download_url,
+        "file_size": release.file_size,
+        "sha256": release.sha256,
+        "changelog": release.changelog,
+        "message": release.update_message,
+    }
 
 
 def _parse_version(v):
