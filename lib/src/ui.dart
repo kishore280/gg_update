@@ -294,6 +294,29 @@ class _ForceUpdateScreenState extends State<ForceUpdateScreen> {
   StreamSubscription<DownloadProgress>? _downloadSub;
 
   @override
+  void initState() {
+    super.initState();
+    // Like Telegram's BlockingUpdateView.show(check=true):
+    // Re-check server — if the update is no longer forced, auto-dismiss.
+    _recheckServer();
+  }
+
+  /// Re-check the server to see if the force update is still required.
+  /// Telegram does this so the server can un-block clients remotely.
+  Future<void> _recheckServer() async {
+    try {
+      final fresh = await widget.service.check();
+      if (!mounted) return;
+      if (fresh.status != UpdateStatus.hard) {
+        await widget.service.clearPendingUpdate();
+        if (mounted) Navigator.of(context).pop();
+      }
+    } catch (_) {
+      // Network error — stay on the force update screen (safe default)
+    }
+  }
+
+  @override
   void dispose() {
     _downloadSub?.cancel();
     super.dispose();
@@ -439,7 +462,10 @@ class _ForceUpdateScreenState extends State<ForceUpdateScreen> {
                 const Spacer(),
 
                 // Action button — in-button progress (like Telegram's radialProgress crossfade)
-                SizedBox(
+                // Telegram clamps button to 320dp max on wide screens
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 320),
+                  child: SizedBox(
                   width: double.infinity,
                   height: 52,
                   child: _ButtonWithShimmer(
@@ -462,6 +488,7 @@ class _ForceUpdateScreenState extends State<ForceUpdateScreen> {
                       ),
                     ),
                   ),
+                ),
                 ),
 
                 const Spacer(flex: 1),
@@ -549,10 +576,11 @@ class _InButtonProgress extends StatelessWidget {
       switchInCurve: _effectsFast,
       switchOutCurve: _effectsFast,
       transitionBuilder: (child, animation) {
+        // Telegram uses scale 0.1↔1.0 for dramatic crossfade between text and spinner
         return FadeTransition(
           opacity: animation,
           child: ScaleTransition(
-            scale: Tween<double>(begin: 0.8, end: 1.0).animate(
+            scale: Tween<double>(begin: 0.1, end: 1.0).animate(
               CurvedAnimation(parent: animation, curve: _effectsFast),
             ),
             child: child,
@@ -567,7 +595,8 @@ class _InButtonProgress extends StatelessWidget {
               child: CircularProgressIndicator(
                 value: progress > 0 ? progress : null,
                 strokeWidth: 2.5,
-                color: Theme.of(context).colorScheme.onError,
+                // Telegram uses pure white (0xffffffff) for the progress spinner
+                color: Colors.white,
               ),
             )
           : Text(
