@@ -575,8 +575,11 @@ class _AnimatedButtonText extends StatelessWidget {
 }
 
 // ─── BUTTON SHIMMER ─────────────────────────────────────────────────
-// Like Telegram's CellFlickerDrawable — a subtle white shine that
-// sweeps across the button to draw attention to the CTA.
+// Matches Telegram's CellFlickerDrawable:
+// - Flat horizontal sweep (no diagonal)
+// - 1200ms sweep + ~240ms pause (repeatProgress 1.2)
+// - Fill layer (alpha 64) + brighter outline stroke (alpha 204)
+// - 160dp-wide gradient band, enters/exits off-screen
 
 class _ButtonWithShimmer extends StatefulWidget {
   final Widget child;
@@ -592,12 +595,16 @@ class _ButtonWithShimmerState extends State<_ButtonWithShimmer>
     with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
 
+  // repeatProgress > 1.0 adds a pause between sweeps (Telegram uses 1.2)
+  static const _repeatProgress = 1.2;
+
   @override
   void initState() {
     super.initState();
     _controller = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 2000),
+      // Total cycle = sweep + pause. Sweep is 1200ms, full cycle = 1200 * 1.2 = 1440ms
+      duration: const Duration(milliseconds: 1440),
     );
     if (widget.showShimmer) _controller.repeat();
   }
@@ -626,26 +633,45 @@ class _ButtonWithShimmerState extends State<_ButtonWithShimmer>
       animation: _controller,
       child: widget.child,
       builder: (context, child) {
-        final pos = _controller.value * 3 - 1; // sweep from -1 to 2
+        // Map progress so shimmer only moves during 0..1/repeatProgress of the cycle
+        final raw = _controller.value * _repeatProgress;
+        final progress = raw.clamp(0.0, 1.0);
+
+        // Sweep from off-screen left to off-screen right (like Telegram)
+        // pos goes from -1.5 to 2.5 so the 160dp band fully enters and exits
+        final pos = progress * 4.0 - 1.5;
+
         return Stack(
           children: [
             child!,
+            // Fill layer (alpha 64)
             Positioned.fill(
               child: IgnorePointer(
                 child: ClipRRect(
-                  borderRadius: BorderRadius.circular(100), // stadium shape
+                  borderRadius: BorderRadius.circular(100),
                   child: DecoratedBox(
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
-                        begin: Alignment(pos - 0.3, -0.5),
-                        end: Alignment(pos + 0.3, 0.5),
+                        begin: Alignment(pos - 0.4, 0),
+                        end: Alignment(pos + 0.4, 0),
                         colors: const [
                           Color(0x00FFFFFF),
-                          Color(0x20FFFFFF),
+                          Color(0x40FFFFFF), // alpha 64
                           Color(0x00FFFFFF),
                         ],
                       ),
                     ),
+                  ),
+                ),
+              ),
+            ),
+            // Outline layer (alpha 204) — brighter stroke on edges
+            Positioned.fill(
+              child: IgnorePointer(
+                child: CustomPaint(
+                  painter: _ShimmerOutlinePainter(
+                    progress: progress,
+                    pos: pos,
                   ),
                 ),
               ),
@@ -655,6 +681,42 @@ class _ButtonWithShimmerState extends State<_ButtonWithShimmer>
       },
     );
   }
+}
+
+class _ShimmerOutlinePainter extends CustomPainter {
+  final double progress;
+  final double pos;
+
+  _ShimmerOutlinePainter({required this.progress, required this.pos});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rect = RRect.fromRectAndRadius(
+      Offset.zero & size,
+      const Radius.circular(100),
+    );
+
+    final gradient = LinearGradient(
+      begin: Alignment(pos - 0.4, 0),
+      end: Alignment(pos + 0.4, 0),
+      colors: const [
+        Color(0x00FFFFFF),
+        Color(0xCCFFFFFF), // alpha 204
+        Color(0x00FFFFFF),
+      ],
+    );
+
+    final paint = Paint()
+      ..shader = gradient.createShader(Offset.zero & size)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.0;
+
+    canvas.drawRRect(rect, paint);
+  }
+
+  @override
+  bool shouldRepaint(_ShimmerOutlinePainter old) =>
+      old.progress != progress;
 }
 
 // ─── HELPER ─────────────────────────────────────────────────────────
