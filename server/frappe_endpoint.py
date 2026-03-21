@@ -1,11 +1,11 @@
 # Paste this into your Frappe custom app:
-# e.g., gg_multisite_sync/api/app_update.py
+# e.g., your_app/api/app_update.py
 #
 # DocType: "App Release" (regular, NOT Single)
 # Fields:
 #   - version (Data, reqd) e.g., "2.1.0" — used as name/title
 #   - min_version (Data) e.g., "1.8.0" — versions below this get force update
-#   - download_url (Data, reqd) e.g., "https://cdn.gg.com/pos-2.1.0.apk"
+#   - download_url (Data, reqd) e.g., "https://cdn.example.com/app-2.1.0.apk"
 #   - file_size (Int) e.g., 45678901
 #   - sha256 (Data) e.g., "a1b2c3..."
 #   - changelog (Small Text)
@@ -25,7 +25,7 @@ import frappe
 @frappe.whitelist(allow_guest=True, methods=["GET"])
 def check_update(platform="android", version="0.0.0"):
     """
-    GET /api/method/gg_multisite_sync.api.app_update.check_update
+    GET /api/method/your_app.api.app_update.check_update
         ?platform=android&version=1.2.0
 
     Returns JSON that gg_updater Flutter package expects.
