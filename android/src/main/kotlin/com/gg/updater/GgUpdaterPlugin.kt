@@ -92,7 +92,7 @@ class GgUpdaterPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Activity
         if (!file.exists()) throw Exception("APK file not found: $filePath")
 
         val uri: Uri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            GgUpdaterFileProvider.getUriForFile(ctx, "${ctx.packageName}.gg_updater.provider", file)
+            androidx.core.content.FileProvider.getUriForFile(ctx, "${ctx.packageName}.gg_updater.provider", file)
         } else {
             Uri.fromFile(file)
         }
