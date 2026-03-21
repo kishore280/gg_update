@@ -1,5 +1,5 @@
 group 'com.gg.updater'
-version '1.0.0'
+version '1.0-SNAPSHOT'
 
 buildscript {
     repositories {
@@ -11,7 +11,7 @@ buildscript {
     }
 }
 
-allprojects {
+rootProject.allprojects {
     repositories {
         google()
         mavenCentral()
@@ -22,23 +22,20 @@ apply plugin: 'com.android.library'
 apply plugin: 'kotlin-android'
 
 android {
-    if (project.android.hasProperty("namespace")) {
-        namespace 'com.gg.updater'
-    }
-
-    compileSdk flutter.compileSdkVersion
+    namespace 'com.gg.updater'
+    compileSdk = flutter.compileSdkVersion
 
     defaultConfig {
-        minSdk flutter.minSdkVersion
+        minSdk 21
     }
 
     compileOptions {
-        sourceCompatibility flutter.javaVersion
-        targetCompatibility flutter.javaVersion
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
     }
 
     kotlinOptions {
-        jvmTarget = flutter.javaVersion
+        jvmTarget = 17
     }
 }
 
