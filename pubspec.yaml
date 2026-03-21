@@ -1,0 +1,23 @@
+name: gg_updater
+description: In-app update system for GG apps. Check → Download → Install.
+version: 1.0.0
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+  flutter: '>=3.10.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  crypto: ^3.0.0
+  dio: ^5.0.0
+  path_provider: ^2.1.0
+  package_info_plus: ^8.0.0
+
+
+flutter:
+  plugin:
+    platforms:
+      android:
+        package: com.gg.updater
+        pluginClass: GgUpdaterPlugin
