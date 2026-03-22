@@ -461,32 +461,34 @@ class _ForceUpdateScreenState extends State<ForceUpdateScreen> {
 
                 // Action button — in-button progress (like Telegram's radialProgress crossfade)
                 // Telegram clamps button to 320dp max on wide screens
-                ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 320),
-                  child: SizedBox(
-                  width: double.infinity,
-                  height: 52,
-                  child: _ButtonWithShimmer(
-                    showShimmer: isIdle,
-                    child: FilledButton(
-                      onPressed: _downloading
-                          ? _cancelDownload
-                          : _filePath != null
-                              ? _install
-                              : _startDownload,
-                      style: FilledButton.styleFrom(
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                        backgroundColor: _downloading ? cs.error : null,
-                      ),
-                      child: _InButtonProgress(
-                        downloading: _downloading,
-                        progress: _progress,
-                        label: _buttonLabel,
-                        textStyle: const TextStyle(fontSize: 16),
+                Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 320),
+                    child: SizedBox(
+                      width: double.infinity,
+                      height: 52,
+                      child: _ButtonWithShimmer(
+                        showShimmer: isIdle,
+                        child: FilledButton(
+                          onPressed: _downloading
+                              ? _cancelDownload
+                              : _filePath != null
+                                  ? _install
+                                  : _startDownload,
+                          style: FilledButton.styleFrom(
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            backgroundColor: _downloading ? cs.error : null,
+                          ),
+                          child: _InButtonProgress(
+                            downloading: _downloading,
+                            progress: _progress,
+                            label: _buttonLabel,
+                            textStyle: const TextStyle(fontSize: 16),
+                          ),
+                        ),
                       ),
                     ),
                   ),
-                ),
                 ),
 
                 const Spacer(flex: 1),
@@ -713,6 +715,7 @@ class _ButtonWithShimmerState extends State<_ButtonWithShimmer>
         final pos = progress * 4.0 - 1.5;
 
         return Stack(
+          fit: StackFit.expand,
           children: [
             child!,
             // Fill layer (alpha ~25%)
