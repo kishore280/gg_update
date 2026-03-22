@@ -596,7 +596,7 @@ class _InButtonProgress extends StatelessWidget {
                 child: CircularProgressIndicator(
                   value: progress > 0 ? progress : null,
                   strokeWidth: 2.5,
-                  color: Theme.of(context).colorScheme.onPrimary,
+                  color: Colors.white,
                 ),
               ),
             )
