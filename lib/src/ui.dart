@@ -588,15 +588,17 @@ class _InButtonProgress extends StatelessWidget {
         );
       },
       child: downloading
-          ? SizedBox(
+          ? Center(
               key: const ValueKey('progress'),
-              width: 24,
-              height: 24,
-              child: CircularProgressIndicator(
-                value: progress > 0 ? progress : null,
-                strokeWidth: 2.5,
-                // Telegram uses pure white (0xffffffff) for the progress spinner
-                color: Colors.white,
+              child: SizedBox(
+                width: 24,
+                height: 24,
+                child: CircularProgressIndicator(
+                  value: progress > 0 ? progress : null,
+                  strokeWidth: 2.5,
+                  // Telegram uses pure white (0xffffffff) for the progress spinner
+                  color: Colors.white,
+                ),
               ),
             )
           : Text(
