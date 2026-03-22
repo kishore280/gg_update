@@ -97,9 +97,19 @@ class UpdateService {
       return;
     }
 
-    // If already downloading this version, just subscribe to existing stream
-    if (isDownloading && _activeDownloadVersion == version && _broadcastController != null) {
-      yield* _broadcastController!.stream;
+    // If a download is already in progress
+    if (isDownloading) {
+      if (_activeDownloadVersion == version && _broadcastController != null) {
+        // For the same version, just subscribe to the existing stream
+        yield* _broadcastController!.stream;
+      } else {
+        // For a different version, report an error as we can't handle concurrent downloads.
+        yield DownloadProgress(
+          received: 0,
+          total: 0,
+          error: 'Another download for version $_activeDownloadVersion is in progress.',
+        );
+      }
       return;
     }
 

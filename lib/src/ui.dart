@@ -15,6 +15,92 @@ const _spatialDefault = Cubic(0.38, 1.21, 0.22, 1.00);   // 500ms
 const _effectsFast = Cubic(0.31, 0.94, 0.34, 1.00);      // 150ms
 const _effectsDefault = Cubic(0.34, 0.80, 0.34, 1.00);   // 200ms
 
+// ─── DOWNLOAD STATE MIXIN ──────────────────────────────────────────
+// Shared download logic for both soft and force update screens.
+// Manages subscribe/unsubscribe, restore, start, cancel, and install.
+
+mixin _DownloadStateMixin<T extends StatefulWidget> on State<T> {
+  bool downloading = false;
+  double progress = 0;
+  String? filePath;
+  String? error;
+  StreamSubscription<DownloadProgress>? _downloadSub;
+
+  UpdateInfo get _info;
+  UpdateService get _service;
+
+  Future<void> restoreDownloadState() async {
+    final version = _info.latestVersion;
+    if (version == null) return;
+
+    final cached = await _service.cachedFilePath(version);
+    if (cached != null && mounted) {
+      setState(() => filePath = cached);
+      return;
+    }
+
+    if (_service.isDownloading) {
+      final last = _service.lastProgress;
+      if (last != null && mounted) {
+        setState(() {
+          downloading = true;
+          progress = last.percent;
+        });
+      }
+      _subscribeToProgress();
+    }
+  }
+
+  void disposeDownload() {
+    _downloadSub?.cancel();
+  }
+
+  void _subscribeToProgress() {
+    _downloadSub?.cancel();
+    _downloadSub = _service.progressStream?.listen(_onProgress);
+  }
+
+  void _onProgress(DownloadProgress p) {
+    if (!mounted) return;
+    setState(() {
+      progress = p.percent;
+      if (p.isComplete) {
+        filePath = p.filePath;
+        downloading = false;
+      }
+      if (p.error != null) {
+        error = p.error;
+        downloading = false;
+      }
+    });
+  }
+
+  void startDownload() {
+    setState(() {
+      downloading = true;
+      error = null;
+    });
+    _downloadSub = _service
+        .download(_info.downloadUrl!, _info.latestVersion!, sha256Checksum: _info.sha256)
+        .listen(_onProgress);
+  }
+
+  void cancelDownload() {
+    _service.cancelDownload();
+    _downloadSub?.cancel();
+    setState(() {
+      downloading = false;
+      progress = 0;
+    });
+  }
+
+  void install() {
+    if (filePath != null) {
+      UpdateService.install(filePath!);
+    }
+  }
+}
+
 // ─── SOFT UPDATE BOTTOM SHEET ───────────────────────────────────────
 // Dismissible. User can tap "Later". Like AyuGram's UpdaterBottomSheet.
 
@@ -44,116 +130,27 @@ class SoftUpdateSheet extends StatefulWidget {
   State<SoftUpdateSheet> createState() => _SoftUpdateSheetState();
 }
 
-class _SoftUpdateSheetState extends State<SoftUpdateSheet> {
-  bool _downloading = false;
-  double _progress = 0;
-  String? _filePath;
-  String? _error;
-  StreamSubscription<DownloadProgress>? _downloadSub;
+class _SoftUpdateSheetState extends State<SoftUpdateSheet> with _DownloadStateMixin {
+  @override
+  UpdateInfo get _info => widget.info;
+  @override
+  UpdateService get _service => widget.service;
 
   @override
   void initState() {
     super.initState();
-    // Like Telegram's FileLoader state query on dialog open:
-    // Check if already downloaded or downloading, so we resume display.
-    _restoreDownloadState();
-  }
-
-  Future<void> _restoreDownloadState() async {
-    final version = widget.info.latestVersion;
-    if (version == null) return;
-
-    // Check cache first — already downloaded?
-    final cached = await widget.service.cachedFilePath(version);
-    if (cached != null && mounted) {
-      setState(() => _filePath = cached);
-      return;
-    }
-
-    // Download in progress? Subscribe to existing stream.
-    if (widget.service.isDownloading) {
-      final last = widget.service.lastProgress;
-      if (last != null && mounted) {
-        setState(() {
-          _downloading = true;
-          _progress = last.percent;
-        });
-      }
-      _subscribeToProgress();
-    }
+    restoreDownloadState();
   }
 
   @override
   void dispose() {
-    // Just unsubscribe — don't cancel the download (like Telegram).
-    _downloadSub?.cancel();
+    disposeDownload();
     super.dispose();
   }
 
-  void _subscribeToProgress() {
-    _downloadSub?.cancel();
-    _downloadSub = widget.service.progressStream?.listen(
-      (p) {
-        if (!mounted) return;
-        setState(() {
-          _progress = p.percent;
-          if (p.isComplete) {
-            _filePath = p.filePath;
-            _downloading = false;
-          }
-          if (p.error != null) {
-            _error = p.error;
-            _downloading = false;
-          }
-        });
-      },
-    );
-  }
-
-  void _startDownload() {
-    setState(() {
-      _downloading = true;
-      _error = null;
-    });
-
-    _downloadSub = widget.service
-        .download(widget.info.downloadUrl!, widget.info.latestVersion!, sha256Checksum: widget.info.sha256)
-        .listen(
-      (p) {
-        if (!mounted) return;
-        setState(() {
-          _progress = p.percent;
-          if (p.isComplete) {
-            _filePath = p.filePath;
-            _downloading = false;
-          }
-          if (p.error != null) {
-            _error = p.error;
-            _downloading = false;
-          }
-        });
-      },
-    );
-  }
-
-  void _cancelDownload() {
-    widget.service.cancelDownload();
-    _downloadSub?.cancel();
-    setState(() {
-      _downloading = false;
-      _progress = 0;
-    });
-  }
-
-  void _install() {
-    if (_filePath != null) {
-      UpdateService.install(_filePath!);
-    }
-  }
-
   String get _buttonLabel {
-    if (_filePath != null) return 'Install now';
-    if (_error != null) return 'Retry';
+    if (filePath != null) return 'Install now';
+    if (error != null) return 'Retry';
     final size = widget.info.fileSize != null ? ' (${formatBytes(widget.info.fileSize!)})' : '';
     return 'Download update$size';
   }
@@ -162,12 +159,12 @@ class _SoftUpdateSheetState extends State<SoftUpdateSheet> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
-    final isIdle = !_downloading && _filePath == null;
+    final isIdle = !downloading && filePath == null;
     final version = _stripVersionPrefix(widget.info.latestVersion);
 
     return PopScope(
       // Block dismiss during download (like Telegram's setCanceledOnTouchOutside(false))
-      canPop: !_downloading,
+      canPop: !downloading,
       child: Padding(
         padding: EdgeInsets.only(
           bottom: MediaQuery.of(context).viewInsets.bottom,
@@ -244,11 +241,11 @@ class _SoftUpdateSheetState extends State<SoftUpdateSheet> {
                   AnimatedSize(
                     duration: const Duration(milliseconds: 200),
                     curve: _effectsDefault,
-                    child: _error != null
+                    child: error != null
                         ? Padding(
                             padding: const EdgeInsets.only(top: 12),
                             child: Text(
-                              _error!,
+                              error!,
                               style: theme.textTheme.bodySmall?.copyWith(color: cs.error),
                               maxLines: 2,
                               overflow: TextOverflow.ellipsis,
@@ -266,17 +263,17 @@ class _SoftUpdateSheetState extends State<SoftUpdateSheet> {
                     child: _ButtonWithShimmer(
                       showShimmer: isIdle,
                       child: FilledButton(
-                        onPressed: _downloading
-                            ? _cancelDownload
-                            : _filePath != null
-                                ? _install
-                                : _startDownload,
+                        onPressed: downloading
+                            ? cancelDownload
+                            : filePath != null
+                                ? install
+                                : startDownload,
                         style: FilledButton.styleFrom(
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                         ),
                         child: _InButtonProgress(
-                          downloading: _downloading,
-                          progress: _progress,
+                          downloading: downloading,
+                          progress: progress,
                           label: _buttonLabel,
                         ),
                       ),
@@ -288,7 +285,7 @@ class _SoftUpdateSheetState extends State<SoftUpdateSheet> {
                   AnimatedSize(
                     duration: const Duration(milliseconds: 350),
                     curve: _spatialFast,
-                    child: _downloading
+                    child: downloading
                         ? const SizedBox.shrink()
                         : SizedBox(
                             width: double.infinity,
@@ -336,13 +333,13 @@ class ForceUpdateScreen extends StatefulWidget {
   State<ForceUpdateScreen> createState() => _ForceUpdateScreenState();
 }
 
-class _ForceUpdateScreenState extends State<ForceUpdateScreen> {
-  bool _downloading = false;
-  double _progress = 0;
-  String? _filePath;
-  String? _error;
+class _ForceUpdateScreenState extends State<ForceUpdateScreen> with _DownloadStateMixin {
   int _tapCount = 0;
-  StreamSubscription<DownloadProgress>? _downloadSub;
+
+  @override
+  UpdateInfo get _info => widget.info;
+  @override
+  UpdateService get _service => widget.service;
 
   @override
   void initState() {
@@ -351,49 +348,7 @@ class _ForceUpdateScreenState extends State<ForceUpdateScreen> {
     // Re-check server — if the update is no longer forced, auto-dismiss.
     _recheckServer();
     // Like Telegram's FileLoader state query — restore download state on open.
-    _restoreDownloadState();
-  }
-
-  Future<void> _restoreDownloadState() async {
-    final version = widget.info.latestVersion;
-    if (version == null) return;
-
-    final cached = await widget.service.cachedFilePath(version);
-    if (cached != null && mounted) {
-      setState(() => _filePath = cached);
-      return;
-    }
-
-    if (widget.service.isDownloading) {
-      final last = widget.service.lastProgress;
-      if (last != null && mounted) {
-        setState(() {
-          _downloading = true;
-          _progress = last.percent;
-        });
-      }
-      _subscribeToProgress();
-    }
-  }
-
-  void _subscribeToProgress() {
-    _downloadSub?.cancel();
-    _downloadSub = widget.service.progressStream?.listen(
-      (p) {
-        if (!mounted) return;
-        setState(() {
-          _progress = p.percent;
-          if (p.isComplete) {
-            _filePath = p.filePath;
-            _downloading = false;
-          }
-          if (p.error != null) {
-            _error = p.error;
-            _downloading = false;
-          }
-        });
-      },
-    );
+    restoreDownloadState();
   }
 
   /// Re-check the server to see if the force update is still required.
@@ -413,55 +368,13 @@ class _ForceUpdateScreenState extends State<ForceUpdateScreen> {
 
   @override
   void dispose() {
-    // Just unsubscribe — don't cancel the download (like Telegram).
-    _downloadSub?.cancel();
+    disposeDownload();
     super.dispose();
   }
 
-  void _startDownload() {
-    setState(() {
-      _downloading = true;
-      _error = null;
-    });
-
-    _downloadSub = widget.service
-        .download(widget.info.downloadUrl!, widget.info.latestVersion!, sha256Checksum: widget.info.sha256)
-        .listen(
-      (p) {
-        if (!mounted) return;
-        setState(() {
-          _progress = p.percent;
-          if (p.isComplete) {
-            _filePath = p.filePath;
-            _downloading = false;
-          }
-          if (p.error != null) {
-            _error = p.error;
-            _downloading = false;
-          }
-        });
-      },
-    );
-  }
-
-  void _cancelDownload() {
-    widget.service.cancelDownload();
-    _downloadSub?.cancel();
-    setState(() {
-      _downloading = false;
-      _progress = 0;
-    });
-  }
-
-  void _install() {
-    if (_filePath != null) {
-      UpdateService.install(_filePath!);
-    }
-  }
-
   String get _buttonLabel {
-    if (_filePath != null) return 'Install now';
-    if (_error != null) return 'Retry';
+    if (filePath != null) return 'Install now';
+    if (error != null) return 'Retry';
     final size = widget.info.fileSize != null ? ' (${formatBytes(widget.info.fileSize!)})' : '';
     return 'Update$size';
   }
@@ -470,7 +383,7 @@ class _ForceUpdateScreenState extends State<ForceUpdateScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
-    final isIdle = !_downloading && _filePath == null;
+    final isIdle = !downloading && filePath == null;
     final version = _stripVersionPrefix(widget.info.latestVersion);
 
     return PopScope(
@@ -540,11 +453,11 @@ class _ForceUpdateScreenState extends State<ForceUpdateScreen> {
                 AnimatedSize(
                   duration: const Duration(milliseconds: 200),
                   curve: _effectsDefault,
-                  child: _error != null
+                  child: error != null
                       ? Padding(
                           padding: const EdgeInsets.only(top: 16),
                           child: Text(
-                            _error!,
+                            error!,
                             style: theme.textTheme.bodySmall?.copyWith(color: cs.error),
                             textAlign: TextAlign.center,
                             maxLines: 2,
@@ -567,17 +480,17 @@ class _ForceUpdateScreenState extends State<ForceUpdateScreen> {
                       child: _ButtonWithShimmer(
                         showShimmer: isIdle,
                         child: FilledButton(
-                          onPressed: _downloading
-                              ? _cancelDownload
-                              : _filePath != null
-                                  ? _install
-                                  : _startDownload,
+                          onPressed: downloading
+                              ? cancelDownload
+                              : filePath != null
+                                  ? install
+                                  : startDownload,
                           style: FilledButton.styleFrom(
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                           ),
                           child: _InButtonProgress(
-                            downloading: _downloading,
-                            progress: _progress,
+                            downloading: downloading,
+                            progress: progress,
                             label: _buttonLabel,
                             textStyle: const TextStyle(fontSize: 16),
                           ),
