@@ -220,7 +220,6 @@ class _SoftUpdateSheetState extends State<SoftUpdateSheet> {
                                 : _startDownload,
                         style: FilledButton.styleFrom(
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                          backgroundColor: _downloading ? cs.error : null,
                         ),
                         child: _InButtonProgress(
                           downloading: _downloading,
@@ -477,7 +476,6 @@ class _ForceUpdateScreenState extends State<ForceUpdateScreen> {
                                   : _startDownload,
                           style: FilledButton.styleFrom(
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                            backgroundColor: _downloading ? cs.error : null,
                           ),
                           child: _InButtonProgress(
                             downloading: _downloading,
