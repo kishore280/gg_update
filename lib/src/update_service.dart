@@ -22,6 +22,21 @@ class UpdateService {
   CancelToken? _cancelToken;
   String? _activeDownloadVersion;
 
+  // ─── GLOBAL DOWNLOAD STATE (like Telegram's FileLoader) ──────────
+  // Download runs independently of UI lifecycle. UI subscribes/unsubscribes.
+  StreamController<DownloadProgress>? _broadcastController;
+  DownloadProgress? _lastProgress;
+
+  /// Current download state. UI can check this on open to resume display.
+  DownloadProgress? get lastProgress => _lastProgress;
+
+  /// Whether a download is currently in progress.
+  bool get isDownloading => _activeDownloadVersion != null && _cancelToken != null && !_cancelToken!.isCancelled;
+
+  /// Subscribe to the active download's progress stream.
+  /// Returns null if no download is active.
+  Stream<DownloadProgress>? get progressStream => _broadcastController?.stream;
+
   UpdateService({
     required this.endpoint,
     this.headers,
@@ -58,8 +73,10 @@ class UpdateService {
 
   // ─── DOWNLOAD ─────────────────────────────────────────────────────
 
-  /// Download APK with progress. Returns a stream of [DownloadProgress].
+  /// Download APK with progress. Returns a broadcast stream of [DownloadProgress].
   ///
+  /// Like Telegram's FileLoader: the download runs globally in the service.
+  /// Multiple UI screens can subscribe/unsubscribe without affecting the download.
   /// If the APK for this version is already cached, emits a single
   /// complete event immediately (like AyuGram's updateDownloaded check).
   Stream<DownloadProgress> download(String url, String version, {String? sha256Checksum}) async* {
@@ -69,12 +86,20 @@ class UpdateService {
     // Cache hit — already downloaded (like AyuGram's updateDownloaded check)
     if (file.existsSync()) {
       final len = await file.length();
-      yield DownloadProgress(
+      final complete = DownloadProgress(
         received: len,
         total: len,
         isComplete: true,
         filePath: file.path,
       );
+      _lastProgress = complete;
+      yield complete;
+      return;
+    }
+
+    // If already downloading this version, just subscribe to existing stream
+    if (isDownloading && _activeDownloadVersion == version && _broadcastController != null) {
+      yield* _broadcastController!.stream;
       return;
     }
 
@@ -83,20 +108,27 @@ class UpdateService {
 
     _cancelToken = CancelToken();
     _activeDownloadVersion = version;
+    _lastProgress = const DownloadProgress(received: 0, total: 0);
+
+    // Broadcast controller — multiple listeners can subscribe/unsubscribe
+    _broadcastController?.close();
+    _broadcastController = StreamController<DownloadProgress>.broadcast();
+
+    void _emit(DownloadProgress p) {
+      _lastProgress = p;
+      if (!(_broadcastController?.isClosed ?? true)) {
+        _broadcastController!.add(p);
+      }
+    }
 
     try {
-      final controller = StreamController<DownloadProgress>();
-
       _dio.download(
         url,
         file.path,
         deleteOnError: true,
         cancelToken: _cancelToken,
         onReceiveProgress: (received, total) {
-          controller.add(DownloadProgress(
-            received: received,
-            total: total,
-          ));
+          _emit(DownloadProgress(received: received, total: total));
         },
       ).then((_) async {
         // Verify SHA256 if provided (like ota_update package)
@@ -105,47 +137,54 @@ class UpdateService {
           final hash = sha256.convert(bytes).toString();
           if (hash != sha256Checksum.toLowerCase()) {
             file.deleteSync();
-            controller.add(DownloadProgress(
+            _emit(DownloadProgress(
               received: 0,
               total: 0,
               error: 'SHA256 checksum mismatch: expected $sha256Checksum, got $hash',
             ));
-            controller.close();
+            _cleanup();
             return;
           }
         }
         final len = await file.length();
-        controller.add(DownloadProgress(
+        _emit(DownloadProgress(
           received: len,
           total: len,
           isComplete: true,
           filePath: file.path,
         ));
-        controller.close();
+        _cleanup();
       }).catchError((e) {
-        controller.add(DownloadProgress(
+        _emit(DownloadProgress(
           received: 0,
           total: 0,
           error: _friendlyError(e),
         ));
-        controller.close();
+        _cleanup();
       });
 
-      yield* controller.stream;
+      yield* _broadcastController!.stream;
     } catch (e) {
       yield DownloadProgress(received: 0, total: 0, error: _friendlyError(e));
-    } finally {
-      _activeDownloadVersion = null;
+      _cleanup();
     }
+  }
+
+  void _cleanup() {
+    _activeDownloadVersion = null;
+    _broadcastController?.close();
+    _broadcastController = null;
   }
 
   /// Cancel an in-progress download and clean up partial file.
   Future<void> cancelDownload() async {
     _cancelToken?.cancel('User cancelled');
     _cancelToken = null;
+    _lastProgress = null;
     // Clean partial file (deleteOnError handles Dio errors, but belt-and-suspenders)
     if (_activeDownloadVersion != null) {
       final versionToClean = _activeDownloadVersion!;
+      _cleanup();
       try {
         final dir = await _otaDir(versionToClean);
         final file = File('${dir.path}/update.apk');
@@ -154,11 +193,6 @@ class UpdateService {
         }
       } catch (_) {
         // Errors during cleanup can be ignored.
-      } finally {
-        // Only clear if no new download has started for a different version.
-        if (_activeDownloadVersion == versionToClean) {
-          _activeDownloadVersion = null;
-        }
       }
     }
   }
@@ -180,6 +214,13 @@ class UpdateService {
   Future<bool> isCached(String version) async {
     final dir = await _otaDir(version);
     return File('${dir.path}/update.apk').existsSync();
+  }
+
+  /// Get the cached APK file path if it exists, null otherwise.
+  Future<String?> cachedFilePath(String version) async {
+    final dir = await _otaDir(version);
+    final file = File('${dir.path}/update.apk');
+    return file.existsSync() ? file.path : null;
   }
 
   /// Delete all cached APKs.

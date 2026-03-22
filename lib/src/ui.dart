@@ -52,9 +52,62 @@ class _SoftUpdateSheetState extends State<SoftUpdateSheet> {
   StreamSubscription<DownloadProgress>? _downloadSub;
 
   @override
+  void initState() {
+    super.initState();
+    // Like Telegram's FileLoader state query on dialog open:
+    // Check if already downloaded or downloading, so we resume display.
+    _restoreDownloadState();
+  }
+
+  Future<void> _restoreDownloadState() async {
+    final version = widget.info.latestVersion;
+    if (version == null) return;
+
+    // Check cache first — already downloaded?
+    final cached = await widget.service.cachedFilePath(version);
+    if (cached != null && mounted) {
+      setState(() => _filePath = cached);
+      return;
+    }
+
+    // Download in progress? Subscribe to existing stream.
+    if (widget.service.isDownloading) {
+      final last = widget.service.lastProgress;
+      if (last != null && mounted) {
+        setState(() {
+          _downloading = true;
+          _progress = last.percent;
+        });
+      }
+      _subscribeToProgress();
+    }
+  }
+
+  @override
   void dispose() {
+    // Just unsubscribe — don't cancel the download (like Telegram).
     _downloadSub?.cancel();
     super.dispose();
+  }
+
+  void _subscribeToProgress() {
+    _downloadSub?.cancel();
+    _downloadSub = widget.service.progressStream?.listen(
+      (p) {
+        if (!mounted) return;
+        setState(() {
+          _progress = p.percent;
+          if (p.isComplete) {
+            _filePath = p.filePath;
+            _downloading = false;
+          }
+          if (p.error != null) {
+            _error = p.error;
+            _downloading = false;
+          }
+        });
+      },
+    );
   }
 
   void _startDownload() {
@@ -297,6 +350,50 @@ class _ForceUpdateScreenState extends State<ForceUpdateScreen> {
     // Like Telegram's BlockingUpdateView.show(check=true):
     // Re-check server — if the update is no longer forced, auto-dismiss.
     _recheckServer();
+    // Like Telegram's FileLoader state query — restore download state on open.
+    _restoreDownloadState();
+  }
+
+  Future<void> _restoreDownloadState() async {
+    final version = widget.info.latestVersion;
+    if (version == null) return;
+
+    final cached = await widget.service.cachedFilePath(version);
+    if (cached != null && mounted) {
+      setState(() => _filePath = cached);
+      return;
+    }
+
+    if (widget.service.isDownloading) {
+      final last = widget.service.lastProgress;
+      if (last != null && mounted) {
+        setState(() {
+          _downloading = true;
+          _progress = last.percent;
+        });
+      }
+      _subscribeToProgress();
+    }
+  }
+
+  void _subscribeToProgress() {
+    _downloadSub?.cancel();
+    _downloadSub = widget.service.progressStream?.listen(
+      (p) {
+        if (!mounted) return;
+        setState(() {
+          _progress = p.percent;
+          if (p.isComplete) {
+            _filePath = p.filePath;
+            _downloading = false;
+          }
+          if (p.error != null) {
+            _error = p.error;
+            _downloading = false;
+          }
+        });
+      },
+    );
   }
 
   /// Re-check the server to see if the force update is still required.
@@ -316,6 +413,7 @@ class _ForceUpdateScreenState extends State<ForceUpdateScreen> {
 
   @override
   void dispose() {
+    // Just unsubscribe — don't cancel the download (like Telegram).
     _downloadSub?.cancel();
     super.dispose();
   }
