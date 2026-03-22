@@ -140,16 +140,26 @@ class UpdateService {
   }
 
   /// Cancel an in-progress download and clean up partial file.
-  void cancelDownload() {
+  Future<void> cancelDownload() async {
     _cancelToken?.cancel('User cancelled');
     _cancelToken = null;
     // Clean partial file (deleteOnError handles Dio errors, but belt-and-suspenders)
     if (_activeDownloadVersion != null) {
-      _otaDir(_activeDownloadVersion!).then((dir) {
+      final versionToClean = _activeDownloadVersion!;
+      try {
+        final dir = await _otaDir(versionToClean);
         final file = File('${dir.path}/update.apk');
-        if (file.existsSync()) file.deleteSync();
-      }).catchError((_) {});
-      _activeDownloadVersion = null;
+        if (await file.exists()) {
+          await file.delete();
+        }
+      } catch (_) {
+        // Errors during cleanup can be ignored.
+      } finally {
+        // Only clear if no new download has started for a different version.
+        if (_activeDownloadVersion == versionToClean) {
+          _activeDownloadVersion = null;
+        }
+      }
     }
   }
 

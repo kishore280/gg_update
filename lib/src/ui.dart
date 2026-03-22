@@ -170,7 +170,6 @@ class _SoftUpdateSheetState extends State<SoftUpdateSheet> {
                     // Changelog with gradient scroll fade (like Telegram's gradientDrawable)
                     _ScrollFadeBox(
                       maxHeight: 200,
-                      fadeColor: theme.dialogBackgroundColor,
                       child: Text(
                         widget.info.changelog!,
                         style: theme.textTheme.bodyMedium,
@@ -432,7 +431,6 @@ class _ForceUpdateScreenState extends State<ForceUpdateScreen> {
                   // Changelog with gradient scroll fade (like Telegram's top/bottom gradients)
                   _ScrollFadeBox(
                     maxHeight: 180,
-                    fadeColor: theme.scaffoldBackgroundColor,
                     child: Text(
                       widget.info.changelog!,
                       textAlign: TextAlign.center,
@@ -614,12 +612,10 @@ class _InButtonProgress extends StatelessWidget {
 
 class _ScrollFadeBox extends StatelessWidget {
   final double maxHeight;
-  final Color fadeColor;
   final Widget child;
 
   const _ScrollFadeBox({
     required this.maxHeight,
-    required this.fadeColor,
     required this.child,
   });
 
