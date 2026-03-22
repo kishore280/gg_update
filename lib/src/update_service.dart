@@ -257,22 +257,26 @@ class UpdateService {
 
   /// Persist a force update so it re-shows after app restart.
   Future<void> savePendingUpdate(UpdateInfo info) async {
-    _currentVersion ??= (await PackageInfo.fromPlatform()).version;
-    final base = await _otaBaseDir();
-    if (!base.existsSync()) base.createSync(recursive: true);
-    final file = File('${base.path}/pending_update.json');
-    file.writeAsStringSync(jsonEncode({
-      'status': info.status.name,
-      'latest_version': info.latestVersion,
-      'min_version': info.minVersion,
-      'download_url': info.downloadUrl,
-      'file_size': info.fileSize,
-      'sha256': info.sha256,
-      'changelog': info.changelog,
-      'message': info.message,
-      'maintenance_message': info.maintenanceMessage,
-      'checked_at_version': _currentVersion,
-    }));
+    try {
+      _currentVersion ??= (await PackageInfo.fromPlatform()).version;
+      final base = await _otaBaseDir();
+      if (!base.existsSync()) base.createSync(recursive: true);
+      final file = File('${base.path}/pending_update.json');
+      file.writeAsStringSync(jsonEncode({
+        'status': info.status.name,
+        'latest_version': info.latestVersion,
+        'min_version': info.minVersion,
+        'download_url': info.downloadUrl,
+        'file_size': info.fileSize,
+        'sha256': info.sha256,
+        'changelog': info.changelog,
+        'message': info.message,
+        'maintenance_message': info.maintenanceMessage,
+        'checked_at_version': _currentVersion,
+      }));
+    } catch (_) {
+      // Best-effort persistence — don't crash the app if disk write fails.
+    }
   }
 
   /// Load persisted force update. Returns null if none or stale.
@@ -305,9 +309,13 @@ class UpdateService {
 
   /// Save the last check timestamp to disk.
   Future<void> saveLastCheckTime(int timestampMs) async {
-    final base = await _otaBaseDir();
-    if (!base.existsSync()) base.createSync(recursive: true);
-    File('${base.path}/last_check.txt').writeAsStringSync('$timestampMs');
+    try {
+      final base = await _otaBaseDir();
+      if (!base.existsSync()) base.createSync(recursive: true);
+      File('${base.path}/last_check.txt').writeAsStringSync('$timestampMs');
+    } catch (_) {
+      // Best-effort — don't crash the app if disk write fails.
+    }
   }
 
   /// Load the last check timestamp from disk. Returns 0 if none.

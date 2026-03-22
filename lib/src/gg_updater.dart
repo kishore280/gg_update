@@ -56,6 +56,10 @@ class GgUpdater {
     bool respectCooldown = true,
   }) async {
     // Allow one-shot usage without init()
+    assert(
+      _service != null || endpoint != null,
+      'Either call GgUpdater.init() first, or pass endpoint to checkAndPrompt().',
+    );
     final svc = _service ??
         UpdateService(
           endpoint: endpoint!,
