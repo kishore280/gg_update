@@ -235,21 +235,27 @@ class UpdateService {
 
   /// Delete all cached APKs.
   Future<void> clearCache() async {
-    final base = await _otaBaseDir();
-    if (base.existsSync()) {
-      base.deleteSync(recursive: true);
-    }
+    try {
+      final base = await _otaBaseDir();
+      if (base.existsSync()) {
+        base.deleteSync(recursive: true);
+      }
+    } catch (_) {}
   }
 
   /// Get total cache size as formatted string.
   Future<String> get cacheSize async {
-    final base = await _otaBaseDir();
-    if (!base.existsSync()) return '0 B';
-    int total = 0;
-    base.listSync(recursive: true).whereType<File>().forEach((f) {
-      total += f.lengthSync();
-    });
-    return formatBytes(total);
+    try {
+      final base = await _otaBaseDir();
+      if (!base.existsSync()) return '0 B';
+      int total = 0;
+      base.listSync(recursive: true).whereType<File>().forEach((f) {
+        total += f.lengthSync();
+      });
+      return formatBytes(total);
+    } catch (_) {
+      return '0 B';
+    }
   }
 
   // ─── FORCE UPDATE PERSISTENCE ────────────────────────────────────
@@ -299,8 +305,10 @@ class UpdateService {
 
   /// Clear persisted force update (called on 10-tap escape or server says none).
   Future<void> clearPendingUpdate() async {
-    final file = File('${(await _otaBaseDir()).path}/pending_update.json');
-    if (file.existsSync()) file.deleteSync();
+    try {
+      final file = File('${(await _otaBaseDir()).path}/pending_update.json');
+      if (file.existsSync()) file.deleteSync();
+    } catch (_) {}
   }
 
   // ─── COOLDOWN PERSISTENCE ────────────────────────────────────────

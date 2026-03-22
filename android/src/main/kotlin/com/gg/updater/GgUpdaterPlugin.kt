@@ -28,6 +28,7 @@ class GgUpdaterPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Activity
 
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         channel.setMethodCallHandler(null)
+        context = null
     }
 
     override fun onAttachedToActivity(binding: ActivityPluginBinding) {
