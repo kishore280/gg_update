@@ -84,17 +84,28 @@ class UpdateService {
     final file = File('${dir.path}/update.apk');
 
     // Cache hit — already downloaded (like AyuGram's updateDownloaded check)
+    // Verify integrity if checksum is available to catch corrupt/partial files.
     if (file.existsSync()) {
-      final len = await file.length();
-      final complete = DownloadProgress(
-        received: len,
-        total: len,
-        isComplete: true,
-        filePath: file.path,
-      );
-      _lastProgress = complete;
-      yield complete;
-      return;
+      if (sha256Checksum != null) {
+        final digest = await sha256.bind(file.openRead()).first;
+        if (digest.toString() != sha256Checksum.toLowerCase()) {
+          // Corrupt cache — delete and re-download
+          try { file.deleteSync(); } catch (_) {}
+        }
+      }
+      // Re-check existence after possible deletion above
+      if (file.existsSync()) {
+        final len = await file.length();
+        final complete = DownloadProgress(
+          received: len,
+          total: len,
+          isComplete: true,
+          filePath: file.path,
+        );
+        _lastProgress = complete;
+        yield complete;
+        return;
+      }
     }
 
     // If a download is already in progress
@@ -142,9 +153,10 @@ class UpdateService {
         },
       ).then((_) async {
         // Verify SHA256 if provided (like ota_update package)
+        // Use streaming hash to avoid loading entire APK into memory.
         if (sha256Checksum != null) {
-          final bytes = await file.readAsBytes();
-          final hash = sha256.convert(bytes).toString();
+          final digest = await sha256.bind(file.openRead()).first;
+          final hash = digest.toString();
           if (hash != sha256Checksum.toLowerCase()) {
             file.deleteSync();
             _emit(DownloadProgress(
