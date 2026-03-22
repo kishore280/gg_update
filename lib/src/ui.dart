@@ -220,7 +220,6 @@ class _SoftUpdateSheetState extends State<SoftUpdateSheet> {
                                 : _startDownload,
                         style: FilledButton.styleFrom(
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                          backgroundColor: _downloading ? cs.error : null,
                         ),
                         child: _InButtonProgress(
                           downloading: _downloading,
@@ -477,7 +476,6 @@ class _ForceUpdateScreenState extends State<ForceUpdateScreen> {
                                   : _startDownload,
                           style: FilledButton.styleFrom(
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                            backgroundColor: _downloading ? cs.error : null,
                           ),
                           child: _InButtonProgress(
                             downloading: _downloading,
@@ -588,15 +586,16 @@ class _InButtonProgress extends StatelessWidget {
         );
       },
       child: downloading
-          ? SizedBox(
+          ? Center(
               key: const ValueKey('progress'),
-              width: 24,
-              height: 24,
-              child: CircularProgressIndicator(
-                value: progress > 0 ? progress : null,
-                strokeWidth: 2.5,
-                // Telegram uses pure white (0xffffffff) for the progress spinner
-                color: Colors.white,
+              child: SizedBox(
+                width: 24,
+                height: 24,
+                child: CircularProgressIndicator(
+                  value: progress > 0 ? progress : null,
+                  strokeWidth: 2.5,
+                  color: Colors.white,
+                ),
               ),
             )
           : Text(
