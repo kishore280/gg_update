@@ -4,6 +4,11 @@ All notable changes to `gg_updater` will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [1.2.0] - 2026-03-23
+
+### Added
+- GitHub Actions workflow for automatic releases on tag push
+
 ## [1.1.0] - 2026-03-23
 
 ### Added
