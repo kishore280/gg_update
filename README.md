@@ -8,7 +8,7 @@ Inspired by [AyuGram/exteraGram](https://github.com/AyuGram/AyuGram4A) and [Tele
 
 - **Version check** from your own REST API (Frappe, Go, static JSON, anything)
 - **In-app APK download** with progress bar and cancel (using dio)
-- **SHA256 checksum** validation on downloads (optional, catches corrupted APKs)
+- **SHA256/SHA1 checksum** validation on downloads (optional; prefers SHA256, falls back to SHA1)
 - **Native APK install** via custom FileProvider + PackageInstaller
 - **Soft update** -- dismissible bottom sheet with changelog
 - **Force update** -- fullscreen blocking screen, persists across app restarts
@@ -80,11 +80,12 @@ final info = await GgUpdater.check();
 print(info.status);        // none, soft, hard, maintenance
 print(info.latestVersion); // "2.1.0"
 
-// Download with progress + checksum verification
+// Download with progress + checksum verification (SHA256 preferred, SHA1 fallback)
 GgUpdater.service.download(
   info.downloadUrl!,
   info.latestVersion!,
   sha256Checksum: info.sha256,
+  sha1Checksum: info.sha1,
 ).listen((p) {
   print('${p.percentText} downloaded');
   if (p.isComplete) {
@@ -132,7 +133,8 @@ GET /your/endpoint?platform=android&version=1.2.0
 | `min_version` | For hard | Versions below this get force update |
 | `download_url` | For soft/hard | Direct URL to APK file |
 | `file_size` | No | Bytes, shown in UI |
-| `sha256` | No | SHA256 hex hash for integrity check |
+| `sha256` | No | SHA256 hex hash (preferred) |
+| `sha1` | No | SHA1 hex hash (fallback when sha256 unavailable) |
 | `changelog` | No | Shown in update UI |
 | `message` | No | Custom message per update type |
 | `maintenance_message` | For maintenance | Shown on maintenance screen |
@@ -145,7 +147,7 @@ Based on AyuGram's UpdaterUtils.java + Telegram's BlockingUpdateView.java:
 
 1. `dio.get()` hits your endpoint -> parses response -> returns `UpdateInfo`
 2. `dio.download()` saves APK to `<app_docs>/ota_updates/<version>/update.apk`
-3. If `sha256` provided, verifies checksum after download (deletes on mismatch)
+3. If `sha256` or `sha1` provided, verifies checksum after download (deletes on mismatch; prefers SHA256)
 4. If file already exists, skips download (cache hit)
 5. Kotlin plugin: `GgUpdaterFileProvider.getUriForFile()` -> `Intent(ACTION_VIEW)` -> native installer
 6. Checks `canRequestPackageInstalls()` on Android 8+ -> redirects to settings if needed

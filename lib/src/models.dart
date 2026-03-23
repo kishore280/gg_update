@@ -23,6 +23,7 @@ class UpdateInfo {
   final String? downloadUrl;
   final int? fileSize;
   final String? sha256;
+  final String? sha1;
   final String? changelog;
   final String? message;
   final String? maintenanceMessage;
@@ -34,6 +35,7 @@ class UpdateInfo {
     this.downloadUrl,
     this.fileSize,
     this.sha256,
+    this.sha1,
     this.changelog,
     this.message,
     this.maintenanceMessage,
@@ -49,6 +51,7 @@ class UpdateInfo {
       downloadUrl: json['download_url'] as String?,
       fileSize: json['file_size'] as int?,
       sha256: json['sha256'] as String?,
+      sha1: json['sha1'] as String?,
       changelog: json['changelog'] as String?,
       message: json['message'] as String?,
       maintenanceMessage: json['maintenance_message'] as String?,

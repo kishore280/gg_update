@@ -7,7 +7,8 @@
 #   - min_version (Data) e.g., "1.8.0" — versions below this get force update
 #   - download_url (Data, reqd) e.g., "https://cdn.example.com/app-2.1.0.apk"
 #   - file_size (Int) e.g., 45678901
-#   - sha256 (Data) e.g., "a1b2c3..."
+#   - sha256 (Data) e.g., "a1b2c3..." — preferred for integrity check
+#   - sha1 (Data) e.g., "a1b2c3..." — or sha1_file (Attach) to read from uploaded file
 #   - changelog (Small Text)
 #   - update_message (Small Text)
 #   - force_update (Check) — mark this release as mandatory
@@ -76,9 +77,27 @@ def check_update(platform="android", version="0.0.0"):
         "download_url": release.download_url,
         "file_size": release.file_size,
         "sha256": release.sha256,
+        "sha1": _resolve_sha1(release),
         "changelog": release.changelog,
         "message": release.update_message,
     }
+
+
+def _resolve_sha1(release):
+    """Return sha1: from sha1_file (Attach) if set, else sha1 (Data) field."""
+    file_url = getattr(release, "sha1_file", None)
+    if file_url:
+        try:
+            name = frappe.db.get_value("File", {"file_url": file_url}, "name")
+            if name:
+                content = frappe.get_doc("File", name).get_content()
+                if isinstance(content, bytes):
+                    content = content.decode("utf-8", errors="replace")
+                if content:
+                    return content.strip()
+        except Exception:
+            pass
+    return getattr(release, "sha1", None)
 
 
 def _parse_version(v):

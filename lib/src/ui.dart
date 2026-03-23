@@ -82,7 +82,7 @@ mixin _DownloadStateMixin<T extends StatefulWidget> on State<T> {
       error = null;
     });
     _downloadSub = _service
-        .download(url, version, sha256Checksum: _info.sha256)
+        .download(url, version, sha256Checksum: _info.sha256, sha1Checksum: _info.sha1)
         .listen(_onProgress);
   }
 

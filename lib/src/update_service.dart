@@ -79,16 +79,18 @@ class UpdateService {
   /// Multiple UI screens can subscribe/unsubscribe without affecting the download.
   /// If the APK for this version is already cached, emits a single
   /// complete event immediately (like AyuGram's updateDownloaded check).
-  Stream<DownloadProgress> download(String url, String version, {String? sha256Checksum}) async* {
+  Stream<DownloadProgress> download(String url, String version, {String? sha256Checksum, String? sha1Checksum}) async* {
     final dir = await _otaDir(version);
     final file = File('${dir.path}/update.apk');
+    final useSha256 = sha256Checksum != null;
+    final expected = (sha256Checksum ?? sha1Checksum)?.toLowerCase();
 
     // Cache hit — already downloaded (like AyuGram's updateDownloaded check)
     // Verify integrity if checksum is available to catch corrupt/partial files.
     if (await file.exists()) {
-      if (sha256Checksum != null) {
-        final digest = await sha256.bind(file.openRead()).first;
-        if (digest.toString() != sha256Checksum.toLowerCase()) {
+      if (expected != null) {
+        final digest = await (useSha256 ? sha256 : sha1).bind(file.openRead()).first;
+        if (digest.toString() != expected) {
           // Corrupt cache — delete and re-download
           try { await file.delete(); } catch (_) {}
         }
@@ -196,17 +198,17 @@ class UpdateService {
         }
         // Rename partial file to final name on success
         await partialFile.rename(file.path);
-        // Verify SHA256 if provided (like ota_update package)
-        // Use streaming hash to avoid loading entire APK into memory.
-        if (sha256Checksum != null) {
-          final digest = await sha256.bind(file.openRead()).first;
+        // Verify checksum if provided (SHA256 preferred, SHA1 fallback)
+        if (expected != null) {
+          final digest = await (useSha256 ? sha256 : sha1).bind(file.openRead()).first;
           final hash = digest.toString();
-          if (hash != sha256Checksum.toLowerCase()) {
+          if (hash != expected) {
             await file.delete();
+            final algo = useSha256 ? 'SHA256' : 'SHA1';
             _emit(DownloadProgress(
               received: 0,
               total: 0,
-              error: 'SHA256 checksum mismatch: expected $sha256Checksum, got $hash',
+              error: '$algo checksum mismatch',
             ));
             _cleanup();
             return;
@@ -335,6 +337,7 @@ class UpdateService {
         'download_url': info.downloadUrl,
         'file_size': info.fileSize,
         'sha256': info.sha256,
+        'sha1': info.sha1,
         'changelog': info.changelog,
         'message': info.message,
         'maintenance_message': info.maintenanceMessage,

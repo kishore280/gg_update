@@ -4,6 +4,12 @@ All notable changes to `gg_updater` will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [1.3.0] - 2026-03-23
+
+### Added
+- SHA1 checksum support as fallback when SHA256 unavailable
+- Frappe endpoint: `sha1_file` (Attach) option to read SHA1 from uploaded file
+
 ## [1.2.0] - 2026-03-23
 
 ### Added
