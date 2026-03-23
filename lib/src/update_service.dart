@@ -142,16 +142,32 @@ class UpdateService {
       }
     }
 
+    // Check for partial download to resume via HTTP Range header
+    final partialFile = File('${file.path}.partial');
+    int resumeOffset = 0;
+    if (partialFile.existsSync()) {
+      resumeOffset = partialFile.lengthSync();
+    }
+
     try {
       _dio.download(
         url,
-        file.path,
-        deleteOnError: true,
+        partialFile.path,
+        deleteOnError: false,
         cancelToken: _cancelToken,
+        options: resumeOffset > 0
+            ? Options(headers: {'Range': 'bytes=$resumeOffset-'})
+            : null,
         onReceiveProgress: (received, total) {
-          _emit(DownloadProgress(received: received, total: total));
+          // When resuming, `received` is bytes in this request, `total` is remaining.
+          // Adjust to reflect true totals.
+          final actualReceived = received + resumeOffset;
+          final actualTotal = total > 0 ? total + resumeOffset : total;
+          _emit(DownloadProgress(received: actualReceived, total: actualTotal));
         },
       ).then((_) async {
+        // Rename partial file to final name on success
+        await partialFile.rename(file.path);
         // Verify SHA256 if provided (like ota_update package)
         // Use streaming hash to avoid loading entire APK into memory.
         if (sha256Checksum != null) {
@@ -203,15 +219,15 @@ class UpdateService {
     _cancelToken?.cancel('User cancelled');
     _cancelToken = null;
     _lastProgress = null;
-    // Clean partial file (deleteOnError handles Dio errors, but belt-and-suspenders)
     if (_activeDownloadVersion != null) {
       final versionToClean = _activeDownloadVersion!;
       _cleanup();
       try {
         final dir = await _otaDir(versionToClean);
-        final file = File('${dir.path}/update.apk');
-        if (await file.exists()) {
-          await file.delete();
+        // Clean both partial and complete files
+        for (final name in ['update.apk.partial', 'update.apk']) {
+          final f = File('${dir.path}/$name');
+          if (await f.exists()) await f.delete();
         }
       } catch (_) {
         // Errors during cleanup can be ignored.
