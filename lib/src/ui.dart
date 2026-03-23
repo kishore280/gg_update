@@ -11,7 +11,6 @@ import 'update_service.dart';
 // Effects springs: for color/opacity changes (subtle).
 
 const _spatialFast = Cubic(0.42, 1.85, 0.21, 0.90);     // 350ms
-const _spatialDefault = Cubic(0.38, 1.21, 0.22, 1.00);   // 500ms
 const _effectsFast = Cubic(0.31, 0.94, 0.34, 1.00);      // 150ms
 const _effectsDefault = Cubic(0.34, 0.80, 0.34, 1.00);   // 200ms
 
