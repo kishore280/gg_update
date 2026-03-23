@@ -32,7 +32,11 @@ mixin _DownloadStateMixin<T extends StatefulWidget> on State<T> {
     final version = _info.latestVersion;
     if (version == null) return;
 
-    final cached = await _service.cachedFilePath(version);
+    final cached = await _service.cachedFilePath(
+      version,
+      sha256Checksum: _info.sha256,
+      sha1Checksum: _info.sha1,
+    );
     if (cached != null && mounted) {
       setState(() => filePath = cached);
       return;

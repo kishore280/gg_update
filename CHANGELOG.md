@@ -4,6 +4,14 @@ All notable changes to `gg_updater` will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [1.3.1] - 2026-03-23
+
+### Fixed
+- Checksum verification in cache-restore path (Install Now) — previously trusted cached file without verifying
+
+### Changed
+- Extracted `_verifyChecksum` helper to avoid duplication; restore detailed "expected/got" error message
+
 ## [1.3.0] - 2026-03-23
 
 ### Added

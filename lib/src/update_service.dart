@@ -86,26 +86,12 @@ class UpdateService {
     final expected = (sha256Checksum ?? sha1Checksum)?.toLowerCase();
 
     // Cache hit — already downloaded (like AyuGram's updateDownloaded check)
-    // Verify integrity if checksum is available to catch corrupt/partial files.
     if (await file.exists()) {
-      if (expected != null) {
-        final digest = await (useSha256 ? sha256 : sha1).bind(file.openRead()).first;
-        if (digest.toString() != expected) {
-          // Corrupt cache — delete and re-download
-          try { await file.delete(); } catch (_) {}
-        }
-      }
-      // Re-check existence after possible deletion above
-      if (await file.exists()) {
+      final result = expected == null ? (ok: true, computedHash: null) : await _verifyChecksum(file, expected, useSha256);
+      if (result.ok && await file.exists()) {
         final len = await file.length();
-        final complete = DownloadProgress(
-          received: len,
-          total: len,
-          isComplete: true,
-          filePath: file.path,
-        );
-        _lastProgress = complete;
-        yield complete;
+        _lastProgress = DownloadProgress(received: len, total: len, isComplete: true, filePath: file.path);
+        yield _lastProgress!;
         return;
       }
     }
@@ -196,20 +182,13 @@ class UpdateService {
             await chunkFile.rename(partialFile.path);
           }
         }
-        // Rename partial file to final name on success
         await partialFile.rename(file.path);
-        // Verify checksum if provided (SHA256 preferred, SHA1 fallback)
         if (expected != null) {
-          final digest = await (useSha256 ? sha256 : sha1).bind(file.openRead()).first;
-          final hash = digest.toString();
-          if (hash != expected) {
-            await file.delete();
+          final result = await _verifyChecksum(file, expected, useSha256);
+          if (!result.ok) {
             final algo = useSha256 ? 'SHA256' : 'SHA1';
-            _emit(DownloadProgress(
-              received: 0,
-              total: 0,
-              error: '$algo checksum mismatch',
-            ));
+            final detail = result.computedHash != null ? ': expected $expected, got ${result.computedHash}' : '';
+            _emit(DownloadProgress(received: 0, total: 0, error: '$algo checksum mismatch$detail'));
             _cleanup();
             return;
           }
@@ -278,17 +257,41 @@ class UpdateService {
 
   // ─── CACHE ────────────────────────────────────────────────────────
 
+  /// Verify file checksum; delete file on mismatch.
+  /// Returns (true, null) on success, (false, computedHash) on mismatch for error messages.
+  static Future<({bool ok, String? computedHash})> _verifyChecksum(File file, String expected, bool useSha256) async {
+    try {
+      final digest = await (useSha256 ? sha256 : sha1).bind(file.openRead()).first;
+      final hash = digest.toString();
+      if (hash != expected) {
+        await file.delete();
+        return (ok: false, computedHash: hash);
+      }
+      return (ok: true, computedHash: null);
+    } catch (_) {
+      try { await file.delete(); } catch (_) {}
+      return (ok: false, computedHash: null);
+    }
+  }
+
   /// Check if an APK is already downloaded for this version.
   Future<bool> isCached(String version) async {
     final dir = await _otaDir(version);
     return File('${dir.path}/update.apk').exists();
   }
 
-  /// Get the cached APK file path if it exists, null otherwise.
-  Future<String?> cachedFilePath(String version) async {
+  /// Get the cached APK file path if it exists and passes checksum verification, null otherwise.
+  Future<String?> cachedFilePath(String version, {String? sha256Checksum, String? sha1Checksum}) async {
     final dir = await _otaDir(version);
     final file = File('${dir.path}/update.apk');
-    return await file.exists() ? file.path : null;
+    if (!await file.exists()) return null;
+
+    final expected = (sha256Checksum ?? sha1Checksum)?.toLowerCase();
+    if (expected != null) {
+      final result = await _verifyChecksum(file, expected, sha256Checksum != null);
+      if (!result.ok) return null;
+    }
+    return file.path;
   }
 
   /// Delete all cached APKs.
