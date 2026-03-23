@@ -20,6 +20,7 @@
 #   - maintenance_message (Small Text)
 
 import frappe
+from packaging.version import Version, InvalidVersion
 
 
 @frappe.whitelist(allow_guest=True, methods=["GET"])
@@ -81,12 +82,17 @@ def check_update(platform="android", version="0.0.0"):
 
 
 def _parse_version(v):
-    """Parse '1.2.3' or '1.2.3-stable' into a tuple (1, 2, 3) for comparison."""
+    """Parse a version string for comparison.
+
+    Uses packaging.version.Version (PEP 440). Normalizes semver-style
+    pre-release suffixes (e.g., '1.0.0-beta') to PEP 440 local segments
+    so they don't cause InvalidVersion.
+    """
     try:
-        # Strip leading 'v'/'V', then split on '-' or '+' to remove pre-release/build suffixes
-        # e.g., "1.0.0-stable" → "1.0.0", "2.1.0+42" → "2.1.0"
-        clean = v.strip().lstrip("vV").split("-")[0].split("+")[0]
-        parts = clean.split(".")
-        return tuple(int(p) for p in parts)
-    except Exception:
-        return (0, 0, 0)
+        clean = v.strip().lstrip("vV")
+        # Semver uses '-suffix' (e.g., 1.0.0-stable), PEP 440 uses '+local'.
+        # Convert so packaging doesn't reject it.
+        clean = clean.replace("-", "+", 1)
+        return Version(clean)
+    except InvalidVersion:
+        return Version("0.0.0")
