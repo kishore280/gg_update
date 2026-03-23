@@ -136,9 +136,11 @@ class GgUpdaterPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Activity
                 }
             }
 
-            // Create a PendingIntent for the install result callback
-            val intent = Intent(INSTALL_ACTION).apply {
-                setPackage(ctx.packageName)
+            // Create a PendingIntent for the install result callback.
+            // Use an explicit component intent — Android 14+ throws if a
+            // mutable PendingIntent carries an implicit intent.
+            val intent = Intent(ctx, InstallResultReceiver::class.java).apply {
+                action = INSTALL_ACTION
             }
             val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE

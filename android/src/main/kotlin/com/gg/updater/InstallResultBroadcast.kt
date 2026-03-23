@@ -24,6 +24,9 @@ object InstallResultBroadcast : EventChannel.StreamHandler {
     private var channel: EventChannel? = null
     private val mainHandler = Handler(Looper.getMainLooper())
 
+    /** Buffers the most recent event so it can be replayed when Dart subscribes. */
+    private var pendingEvent: Map<String, String>? = null
+
     fun register(messenger: BinaryMessenger) {
         channel = EventChannel(messenger, CHANNEL).also {
             it.setStreamHandler(this)
@@ -34,24 +37,33 @@ object InstallResultBroadcast : EventChannel.StreamHandler {
         channel?.setStreamHandler(null)
         channel = null
         eventSink = null
+        pendingEvent = null
     }
 
     /**
      * Called by [InstallResultReceiver] — safe to call from any thread.
+     *
+     * If no Dart listener is attached yet the event is buffered and
+     * replayed once [onListen] fires, so install results are never lost.
      */
     fun send(status: String, message: String?) {
+        val event = mapOf("status" to status, "message" to (message ?: ""))
         mainHandler.post {
-            eventSink?.success(
-                mapOf(
-                    "status" to status,
-                    "message" to (message ?: ""),
-                ),
-            )
+            val sink = eventSink
+            if (sink != null) {
+                sink.success(event)
+            } else {
+                pendingEvent = event
+            }
         }
     }
 
     override fun onListen(arguments: Any?, events: EventChannel.EventSink) {
         eventSink = events
+        pendingEvent?.let {
+            events.success(it)
+            pendingEvent = null
+        }
     }
 
     override fun onCancel(arguments: Any?) {
