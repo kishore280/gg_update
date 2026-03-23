@@ -4,6 +4,14 @@ All notable changes to `gg_updater` will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [1.3.3] - 2026-03-23
+
+### Added
+- `debugPrint` on checksum mismatch (download + cache restore) for logcat/console debugging
+
+### Fixed
+- Trim whitespace from sha1/sha256 from server (fixes mismatch when sha1_file has newline)
+
 ## [1.3.2] - 2026-03-23
 
 ### Added

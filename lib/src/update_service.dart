@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:crypto/crypto.dart';
+import 'package:flutter/foundation.dart';
 import 'package:dio/dio.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
@@ -83,7 +84,7 @@ class UpdateService {
     final dir = await _otaDir(version);
     final file = File('${dir.path}/update.apk');
     final useSha256 = sha256Checksum != null;
-    final expected = (sha256Checksum ?? sha1Checksum)?.toLowerCase();
+    final expected = (sha256Checksum ?? sha1Checksum)?.toLowerCase().trim();
 
     // Cache hit — already downloaded (like AyuGram's updateDownloaded check)
     if (await file.exists()) {
@@ -188,7 +189,9 @@ class UpdateService {
           if (!result.ok) {
             final algo = useSha256 ? 'SHA256' : 'SHA1';
             final detail = result.computedHash != null ? ': expected $expected, got ${result.computedHash}' : '';
-            _emit(DownloadProgress(received: 0, total: 0, error: '$algo checksum mismatch$detail'));
+            final msg = '$algo checksum mismatch$detail';
+            debugPrint('[gg_updater] $msg');
+            _emit(DownloadProgress(received: 0, total: 0, error: msg));
             _cleanup();
             return;
           }
@@ -299,10 +302,15 @@ class UpdateService {
     final file = File('${dir.path}/update.apk');
     if (!await file.exists()) return null;
 
-    final expected = (sha256Checksum ?? sha1Checksum)?.toLowerCase();
+    final expected = (sha256Checksum ?? sha1Checksum)?.toLowerCase().trim();
     if (expected != null) {
       final result = await _verifyChecksum(file, expected, sha256Checksum != null);
-      if (!result.ok) return null;
+      if (!result.ok) {
+        final algo = sha256Checksum != null ? 'SHA256' : 'SHA1';
+        final detail = result.computedHash != null ? ': expected $expected, got ${result.computedHash}' : '';
+        debugPrint('[gg_updater] Cache verify failed ($algo)$detail');
+        return null;
+      }
     }
     return file.path;
   }

@@ -65,7 +65,7 @@ class ApkInstaller {
       'verifyChecksum',
       {
         'filePath': filePath,
-        'expected': expected.toLowerCase(),
+        'expected': expected.toLowerCase().trim(),
         'algorithm': useSha256 ? 'SHA-256' : 'SHA-1',
       },
     );
