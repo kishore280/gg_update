@@ -4,6 +4,12 @@ All notable changes to `gg_updater` will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [1.3.6] - 2026-03-23
+
+### Changed
+- Bump dependencies: `crypto` ^3.0.7, `dio` ^5.9.2, `path_provider` ^2.1.5
+- Raise min SDK to Dart 3.4 / Flutter 3.19 (required by crypto 3.0.7 and path_provider 2.1.5)
+
 ## [1.3.5] - 2026-03-23
 
 ### Fixed
