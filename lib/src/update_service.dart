@@ -48,7 +48,11 @@ class UpdateService {
     Dio? dio,
   }) : _dio = dio ?? Dio() {
     final baseUrl = _dio.options.baseUrl;
-    _downloadDio = Dio(BaseOptions(baseUrl: baseUrl));
+    final baseHeaders = _dio.options.headers;
+    _downloadDio = Dio(BaseOptions(
+      baseUrl: baseUrl,
+      headers: baseHeaders.isEmpty ? null : Map<String, dynamic>.from(baseHeaders),
+    ));
   }
 
   // ─── CHECK ────────────────────────────────────────────────────────
