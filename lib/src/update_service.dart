@@ -182,7 +182,7 @@ class UpdateService {
             effectiveOffset = 0;
             if (await partialFile.exists()) await partialFile.delete();
             await chunkFile.rename(partialFile.path);
-          } else {
+          } else if (response.statusCode == 206) {
             // Server honoured Range (206) — append chunk to partial.
             final raf = await partialFile.open(mode: FileMode.writeOnlyAppend);
             try {
@@ -191,6 +191,11 @@ class UpdateService {
               await raf.close();
             }
             await chunkFile.delete();
+          } else {
+            // Unexpected status code — treat chunkFile as full download.
+            effectiveOffset = 0;
+            if (await partialFile.exists()) await partialFile.delete();
+            await chunkFile.rename(partialFile.path);
           }
         }
         // Rename partial file to final name on success
