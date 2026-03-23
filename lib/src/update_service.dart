@@ -85,16 +85,16 @@ class UpdateService {
 
     // Cache hit — already downloaded (like AyuGram's updateDownloaded check)
     // Verify integrity if checksum is available to catch corrupt/partial files.
-    if (file.existsSync()) {
+    if (await file.exists()) {
       if (sha256Checksum != null) {
         final digest = await sha256.bind(file.openRead()).first;
         if (digest.toString() != sha256Checksum.toLowerCase()) {
           // Corrupt cache — delete and re-download
-          try { file.deleteSync(); } catch (_) {}
+          try { await file.delete(); } catch (_) {}
         }
       }
       // Re-check existence after possible deletion above
-      if (file.existsSync()) {
+      if (await file.exists()) {
         final len = await file.length();
         final complete = DownloadProgress(
           received: len,
@@ -145,8 +145,8 @@ class UpdateService {
     // Check for partial download to resume via HTTP Range header
     final partialFile = File('${file.path}.partial');
     int resumeOffset = 0;
-    if (partialFile.existsSync()) {
-      resumeOffset = partialFile.lengthSync();
+    if (await partialFile.exists()) {
+      resumeOffset = await partialFile.length();
     }
 
     try {
@@ -174,7 +174,7 @@ class UpdateService {
           final digest = await sha256.bind(file.openRead()).first;
           final hash = digest.toString();
           if (hash != sha256Checksum.toLowerCase()) {
-            file.deleteSync();
+            await file.delete();
             _emit(DownloadProgress(
               received: 0,
               total: 0,
@@ -251,22 +251,22 @@ class UpdateService {
   /// Check if an APK is already downloaded for this version.
   Future<bool> isCached(String version) async {
     final dir = await _otaDir(version);
-    return File('${dir.path}/update.apk').existsSync();
+    return File('${dir.path}/update.apk').exists();
   }
 
   /// Get the cached APK file path if it exists, null otherwise.
   Future<String?> cachedFilePath(String version) async {
     final dir = await _otaDir(version);
     final file = File('${dir.path}/update.apk');
-    return file.existsSync() ? file.path : null;
+    return await file.exists() ? file.path : null;
   }
 
   /// Delete all cached APKs.
   Future<void> clearCache() async {
     try {
       final base = await _otaBaseDir();
-      if (base.existsSync()) {
-        base.deleteSync(recursive: true);
+      if (await base.exists()) {
+        await base.delete(recursive: true);
       }
     } catch (_) {}
   }
@@ -275,11 +275,13 @@ class UpdateService {
   Future<String> get cacheSize async {
     try {
       final base = await _otaBaseDir();
-      if (!base.existsSync()) return '0 B';
+      if (!await base.exists()) return '0 B';
       int total = 0;
-      base.listSync(recursive: true).whereType<File>().forEach((f) {
-        total += f.lengthSync();
-      });
+      await for (final entity in base.list(recursive: true)) {
+        if (entity is File) {
+          total += await entity.length();
+        }
+      }
       return formatBytes(total);
     } catch (_) {
       return '0 B';
@@ -294,9 +296,11 @@ class UpdateService {
     try {
       _currentVersion ??= (await PackageInfo.fromPlatform()).version;
       final base = await _otaBaseDir();
-      if (!base.existsSync()) base.createSync(recursive: true);
+      if (!await base.exists()) {
+        await base.create(recursive: true);
+      }
       final file = File('${base.path}/pending_update.json');
-      file.writeAsStringSync(jsonEncode({
+      await file.writeAsString(jsonEncode({
         'status': info.status.name,
         'latest_version': info.latestVersion,
         'min_version': info.minVersion,
@@ -317,12 +321,12 @@ class UpdateService {
   Future<UpdateInfo?> loadPendingUpdate() async {
     _currentVersion ??= (await PackageInfo.fromPlatform()).version;
     final file = File('${(await _otaBaseDir()).path}/pending_update.json');
-    if (!file.existsSync()) return null;
+    if (!await file.exists()) return null;
     try {
-      final data = jsonDecode(file.readAsStringSync()) as Map<String, dynamic>;
+      final data = jsonDecode(await file.readAsString()) as Map<String, dynamic>;
       // Stale: app was updated since we saved this
       if (data['checked_at_version'] != _currentVersion) {
-        file.deleteSync();
+        await file.delete();
         return null;
       }
       return UpdateInfo.fromJson(data);
@@ -335,7 +339,7 @@ class UpdateService {
   Future<void> clearPendingUpdate() async {
     try {
       final file = File('${(await _otaBaseDir()).path}/pending_update.json');
-      if (file.existsSync()) file.deleteSync();
+      if (await file.exists()) await file.delete();
     } catch (_) {}
   }
 
@@ -347,8 +351,10 @@ class UpdateService {
   Future<void> saveLastCheckTime(int timestampMs) async {
     try {
       final base = await _otaBaseDir();
-      if (!base.existsSync()) base.createSync(recursive: true);
-      File('${base.path}/last_check.txt').writeAsStringSync('$timestampMs');
+      if (!await base.exists()) {
+        await base.create(recursive: true);
+      }
+      await File('${base.path}/last_check.txt').writeAsString('$timestampMs');
     } catch (_) {
       // Best-effort — don't crash the app if disk write fails.
     }
@@ -357,9 +363,9 @@ class UpdateService {
   /// Load the last check timestamp from disk. Returns 0 if none.
   Future<int> loadLastCheckTime() async {
     final file = File('${(await _otaBaseDir()).path}/last_check.txt');
-    if (!file.existsSync()) return 0;
+    if (!await file.exists()) return 0;
     try {
-      return int.parse(file.readAsStringSync().trim());
+      return int.parse((await file.readAsString()).trim());
     } catch (_) {
       return 0;
     }
@@ -376,19 +382,19 @@ class UpdateService {
     // Sanitize version to prevent path traversal (e.g. "../../evil")
     final safe = version.replaceAll(RegExp(r'[^a-zA-Z0-9._\-+]'), '_');
     final dir = Directory('${(await _otaBaseDir()).path}/$safe');
-    if (!dir.existsSync()) dir.createSync(recursive: true);
+    if (!await dir.exists()) await dir.create(recursive: true);
     return dir;
   }
 
   /// Delete cached APKs for versions other than [keepVersion].
   Future<void> _cleanOldVersions(String keepVersion) async {
     final base = await _otaBaseDir();
-    if (!base.existsSync()) return;
+    if (!await base.exists()) return;
     final safe = keepVersion.replaceAll(RegExp(r'[^a-zA-Z0-9._\-+]'), '_');
-    for (final entity in base.listSync()) {
+    await for (final entity in base.list()) {
       if (entity is Directory && entity.path.split('/').last != safe) {
         try {
-          entity.deleteSync(recursive: true);
+          await entity.delete(recursive: true);
         } catch (_) {}
       }
     }

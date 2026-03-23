@@ -64,12 +64,9 @@ mixin _DownloadStateMixin<T extends StatefulWidget> on State<T> {
     if (!mounted) return;
     setState(() {
       progress = p.percent;
-      if (p.isComplete) {
-        filePath = p.filePath;
-        downloading = false;
-      }
-      if (p.error != null) {
-        error = p.error;
+      error = p.error;
+      filePath = p.filePath;
+      if (p.isComplete || p.error != null) {
         downloading = false;
       }
     });
@@ -92,11 +89,6 @@ mixin _DownloadStateMixin<T extends StatefulWidget> on State<T> {
 
   void cancelDownload() {
     _service.cancelDownload();
-    _downloadSub?.cancel();
-    setState(() {
-      downloading = false;
-      progress = 0;
-    });
   }
 
   void install() {
