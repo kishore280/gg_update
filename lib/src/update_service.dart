@@ -143,22 +143,27 @@ class UpdateService {
       }
     }
 
-    // Check for partial download to resume via HTTP Range header
+    // Check for partial download to resume via HTTP Range header.
+    // Dio's download() overwrites the target file, so when resuming we
+    // download the remaining chunk to a separate .chunk file and then
+    // append it to the existing .partial file.
     final partialFile = File('${file.path}.partial');
+    final chunkFile = File('${file.path}.chunk');
     int resumeOffset = 0;
     if (await partialFile.exists()) {
       resumeOffset = await partialFile.length();
     }
 
+    // When resuming, Dio writes only the new bytes to chunkFile.
+    // For fresh downloads, Dio writes directly to partialFile.
+    final downloadTarget = resumeOffset > 0 ? chunkFile.path : partialFile.path;
+
     try {
-      // Track whether the server actually honoured our Range header.
-      // If it returns 200 instead of 206, the response contains the full
-      // file and we must discard the stale partial data.
       int effectiveOffset = resumeOffset;
 
       _dio.download(
         url,
-        partialFile.path,
+        downloadTarget,
         deleteOnError: false,
         cancelToken: _cancelToken,
         options: resumeOffset > 0
@@ -170,11 +175,23 @@ class UpdateService {
           _emit(DownloadProgress(received: actualReceived, total: actualTotal));
         },
       ).then((response) async {
-        // Server ignored Range header — it sent the full file (200, not 206).
-        // Dio already wrote the full content to partialFile, replacing the
-        // stale partial data, so just reset our offset accounting.
-        if (resumeOffset > 0 && response.statusCode == 200) {
-          effectiveOffset = 0;
+        if (resumeOffset > 0) {
+          if (response.statusCode == 200) {
+            // Server ignored Range — chunkFile has the full content.
+            // Replace partial with it.
+            effectiveOffset = 0;
+            if (await partialFile.exists()) await partialFile.delete();
+            await chunkFile.rename(partialFile.path);
+          } else {
+            // Server honoured Range (206) — append chunk to partial.
+            final raf = await partialFile.open(mode: FileMode.writeOnlyAppend);
+            try {
+              await raf.writeFrom(await chunkFile.readAsBytes());
+            } finally {
+              await raf.close();
+            }
+            await chunkFile.delete();
+          }
         }
         // Rename partial file to final name on success
         await partialFile.rename(file.path);
@@ -234,8 +251,8 @@ class UpdateService {
       _cleanup();
       try {
         final dir = await _otaDir(versionToClean);
-        // Clean both partial and complete files
-        for (final name in ['update.apk.partial', 'update.apk']) {
+        // Clean partial, chunk, and complete files
+        for (final name in ['update.apk.chunk', 'update.apk.partial', 'update.apk']) {
           final f = File('${dir.path}/$name');
           if (await f.exists()) await f.delete();
         }
