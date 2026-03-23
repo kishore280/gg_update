@@ -54,4 +54,25 @@ class ApkInstaller {
   static Future<void> openInstallPermissionSettings() async {
     await _channel.invokeMethod('openInstallPermissionSettings');
   }
+
+  /// Verify file checksum via native (faster than Dart). Returns (ok, computedHash).
+  static Future<({bool ok, String? computedHash})> verifyChecksum(
+    String filePath,
+    String expected,
+    bool useSha256,
+  ) async {
+    final r = await _channel.invokeMethod<Map<dynamic, dynamic>>(
+      'verifyChecksum',
+      {
+        'filePath': filePath,
+        'expected': expected.toLowerCase(),
+        'algorithm': useSha256 ? 'SHA-256' : 'SHA-1',
+      },
+    );
+    if (r == null) return (ok: false, computedHash: null);
+    return (
+      ok: r['ok'] as bool? ?? false,
+      computedHash: r['computedHash'] as String?,
+    );
+  }
 }

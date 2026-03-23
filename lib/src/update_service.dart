@@ -258,8 +258,21 @@ class UpdateService {
   // ─── CACHE ────────────────────────────────────────────────────────
 
   /// Verify file checksum; delete file on mismatch.
-  /// Returns (true, null) on success, (false, computedHash) on mismatch for error messages.
+  /// Uses native (Kotlin) on Android for speed; falls back to Dart otherwise.
   static Future<({bool ok, String? computedHash})> _verifyChecksum(File file, String expected, bool useSha256) async {
+    if (Platform.isAndroid) {
+      try {
+        final result = await ApkInstaller.verifyChecksum(file.path, expected, useSha256);
+        if (!result.ok) {
+          try { await file.delete(); } catch (_) {}
+        }
+        return result;
+      } catch (_) {
+        try { await file.delete(); } catch (_) {}
+        return (ok: false, computedHash: null);
+      }
+    }
+    // Fallback: Dart (e.g. unit tests, non-Android)
     try {
       final digest = await (useSha256 ? sha256 : sha1).bind(file.openRead()).first;
       final hash = digest.toString();

@@ -23,6 +23,7 @@ mixin _DownloadStateMixin<T extends StatefulWidget> on State<T> {
   double progress = 0;
   String? filePath;
   String? error;
+  bool restoringCache = true;
   StreamSubscription<DownloadProgress>? _downloadSub;
 
   UpdateInfo get _info;
@@ -30,27 +31,39 @@ mixin _DownloadStateMixin<T extends StatefulWidget> on State<T> {
 
   Future<void> restoreDownloadState() async {
     final version = _info.latestVersion;
-    if (version == null) return;
+    if (version == null) {
+      if (mounted) setState(() => restoringCache = false);
+      return;
+    }
 
     final cached = await _service.cachedFilePath(
       version,
       sha256Checksum: _info.sha256,
       sha1Checksum: _info.sha1,
     );
-    if (cached != null && mounted) {
-      setState(() => filePath = cached);
+    if (!mounted) return;
+    if (cached != null) {
+      setState(() {
+        filePath = cached;
+        restoringCache = false;
+      });
       return;
     }
 
     if (_service.isDownloading) {
       final last = _service.lastProgress;
-      if (last != null && mounted) {
+      if (last != null) {
         setState(() {
           downloading = true;
           progress = last.percent;
+          restoringCache = false;
         });
+        _subscribeToProgress();
+      } else {
+        setState(() => restoringCache = false);
       }
-      _subscribeToProgress();
+    } else {
+      setState(() => restoringCache = false);
     }
   }
 
@@ -149,6 +162,7 @@ class _SoftUpdateSheetState extends State<SoftUpdateSheet> with _DownloadStateMi
   }
 
   String get _buttonLabel {
+    if (restoringCache) return 'Checking...';
     if (filePath != null) return 'Install now';
     if (error != null) return 'Retry';
     final size = widget.info.fileSize != null ? ' (${formatBytes(widget.info.fileSize!)})' : '';
@@ -159,7 +173,7 @@ class _SoftUpdateSheetState extends State<SoftUpdateSheet> with _DownloadStateMi
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
-    final isIdle = !downloading && filePath == null;
+    final isIdle = !downloading && filePath == null && !restoringCache;
     final version = _stripVersionPrefix(widget.info.latestVersion);
 
     return PopScope(
@@ -263,11 +277,13 @@ class _SoftUpdateSheetState extends State<SoftUpdateSheet> with _DownloadStateMi
                     child: _ButtonWithShimmer(
                       showShimmer: isIdle,
                       child: FilledButton(
-                        onPressed: downloading
-                            ? cancelDownload
-                            : filePath != null
-                                ? install
-                                : startDownload,
+                        onPressed: restoringCache
+                            ? null
+                            : downloading
+                                ? cancelDownload
+                                : filePath != null
+                                    ? install
+                                    : startDownload,
                         style: FilledButton.styleFrom(
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                         ),
@@ -373,6 +389,7 @@ class _ForceUpdateScreenState extends State<ForceUpdateScreen> with _DownloadSta
   }
 
   String get _buttonLabel {
+    if (restoringCache) return 'Checking...';
     if (filePath != null) return 'Install now';
     if (error != null) return 'Retry';
     final size = widget.info.fileSize != null ? ' (${formatBytes(widget.info.fileSize!)})' : '';
@@ -383,7 +400,7 @@ class _ForceUpdateScreenState extends State<ForceUpdateScreen> with _DownloadSta
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
-    final isIdle = !downloading && filePath == null;
+    final isIdle = !downloading && filePath == null && !restoringCache;
     final version = _stripVersionPrefix(widget.info.latestVersion);
 
     return PopScope(
@@ -480,11 +497,13 @@ class _ForceUpdateScreenState extends State<ForceUpdateScreen> with _DownloadSta
                       child: _ButtonWithShimmer(
                         showShimmer: isIdle,
                         child: FilledButton(
-                          onPressed: downloading
-                              ? cancelDownload
-                              : filePath != null
-                                  ? install
-                                  : startDownload,
+                          onPressed: restoringCache
+                              ? null
+                              : downloading
+                                  ? cancelDownload
+                                  : filePath != null
+                                      ? install
+                                      : startDownload,
                           style: FilledButton.styleFrom(
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                           ),

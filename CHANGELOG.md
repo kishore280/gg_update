@@ -4,7 +4,13 @@ All notable changes to `gg_updater` will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
-## [1.3.1] - 2026-03-23
+## [1.3.2] - 2026-03-23
+
+### Added
+- Native (Kotlin) checksum verification — uses MessageDigest for faster SHA1/SHA256 on Android
+
+### Fixed
+- "Checking..." state to prevent Download→Install flicker during cache verification
 
 ### Fixed
 - Checksum verification in cache-restore path (Install Now) — previously trusted cached file without verifying

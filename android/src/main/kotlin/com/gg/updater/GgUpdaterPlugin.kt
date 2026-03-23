@@ -17,6 +17,7 @@ import io.flutter.plugin.common.MethodChannel
 import java.io.File
 import java.io.FileInputStream
 import java.lang.ref.WeakReference
+import java.security.MessageDigest
 
 class GgUpdaterPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, ActivityAware {
 
@@ -87,6 +88,31 @@ class GgUpdaterPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Activity
                     context?.startActivity(intent)
                 }
                 result.success(true)
+            }
+
+            "verifyChecksum" -> {
+                val filePath = call.argument<String>("filePath")
+                val expected = call.argument<String>("expected")
+                val algorithm = call.argument<String>("algorithm") ?: "SHA-1"
+                if (filePath == null || expected == null) {
+                    result.error("ARG_ERROR", "filePath and expected are required", null)
+                    return
+                }
+                try {
+                    val file = File(filePath)
+                    if (!file.exists()) {
+                        result.error("FILE_NOT_FOUND", "File does not exist", null)
+                        return
+                    }
+                    val actual = computeFileHash(file, algorithm)
+                    val ok = actual.equals(expected, ignoreCase = true)
+                    result.success(mapOf(
+                        "ok" to ok,
+                        "computedHash" to (if (ok) null else actual)
+                    ))
+                } catch (e: Exception) {
+                    result.error("VERIFY_ERROR", e.message, null)
+                }
             }
 
             else -> result.notImplemented()
@@ -180,5 +206,18 @@ class GgUpdaterPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Activity
     companion object {
         private const val TAG = "GgUpdaterPlugin"
         private const val INSTALL_ACTION = "com.gg.updater.INSTALL_RESULT"
+
+        /** Compute file hash using MessageDigest. Reads in 64KB chunks to avoid OOM. */
+        private fun computeFileHash(file: File, algorithm: String): String {
+            val digest = MessageDigest.getInstance(algorithm)
+            FileInputStream(file).use { input ->
+                val buffer = ByteArray(65536)
+                var bytesRead: Int
+                while (input.read(buffer).also { bytesRead = it } != -1) {
+                    digest.update(buffer, 0, bytesRead)
+                }
+            }
+            return digest.digest().joinToString("") { "%02x".format(it) }
+        }
     }
 }
