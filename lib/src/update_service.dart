@@ -183,13 +183,9 @@ class UpdateService {
             if (await partialFile.exists()) await partialFile.delete();
             await chunkFile.rename(partialFile.path);
           } else if (response.statusCode == 206) {
-            // Server honoured Range (206) — append chunk to partial.
-            final raf = await partialFile.open(mode: FileMode.writeOnlyAppend);
-            try {
-              await raf.writeFrom(await chunkFile.readAsBytes());
-            } finally {
-              await raf.close();
-            }
+            // Server honoured Range (206) — stream chunk into partial.
+            final sink = partialFile.openWrite(mode: FileMode.writeOnlyAppend);
+            await chunkFile.openRead().pipe(sink);
             await chunkFile.delete();
           } else {
             // Unexpected status code — treat chunkFile as full download.
