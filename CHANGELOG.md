@@ -4,6 +4,14 @@ All notable changes to `gg_updater` will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [1.3.4] - 2026-03-23
+
+### Fixed
+- **SHA1 checksum mismatch after download** — root causes addressed:
+  - Use dedicated `_downloadDio` (no interceptors) for file download; app's `LogInterceptor(responseBody: true)` can consume/corrupt response stream
+  - Add `Accept-Encoding: identity` to disable gzip; server checksum is for raw bytes, compression causes mismatch
+- Improve mismatch logging: include file size and expected/got hashes when available
+
 ## [1.3.3] - 2026-03-23
 
 ### Added

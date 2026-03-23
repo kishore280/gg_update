@@ -1,6 +1,6 @@
 name: gg_updater
 description: In-app update system for GG apps. Check → Download → Install.
-version: 1.3.3
+version: 1.3.4
 
 environment:
   sdk: '>=3.0.0 <4.0.0'

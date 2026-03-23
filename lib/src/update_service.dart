@@ -38,11 +38,18 @@ class UpdateService {
   /// Returns null if no download is active.
   Stream<DownloadProgress>? get progressStream => _broadcastController?.stream;
 
+  /// Dio used only for download(). No interceptors — avoids LogInterceptor
+  /// or others consuming/corrupting the response stream.
+  late final Dio _downloadDio;
+
   UpdateService({
     required this.endpoint,
     this.headers,
     Dio? dio,
-  }) : _dio = dio ?? Dio();
+  }) : _dio = dio ?? Dio() {
+    final baseUrl = _dio.options.baseUrl;
+    _downloadDio = Dio(BaseOptions(baseUrl: baseUrl));
+  }
 
   // ─── CHECK ────────────────────────────────────────────────────────
 
@@ -150,14 +157,19 @@ class UpdateService {
     try {
       int effectiveOffset = resumeOffset;
 
-      _dio.download(
+      // Accept-Encoding: identity — disable gzip so we get raw bytes.
+      // Server's checksum is for the uncompressed file; compression can cause mismatch.
+      final downloadHeaders = <String, String>{'Accept-Encoding': 'identity'};
+      if (resumeOffset > 0) {
+        downloadHeaders['Range'] = 'bytes=$resumeOffset-';
+      }
+
+      _downloadDio.download(
         url,
         downloadTarget,
         deleteOnError: false,
         cancelToken: _cancelToken,
-        options: resumeOffset > 0
-            ? Options(headers: {'Range': 'bytes=$resumeOffset-'})
-            : null,
+        options: Options(headers: downloadHeaders),
         onReceiveProgress: (received, total) {
           final actualReceived = received + effectiveOffset;
           final actualTotal = total > 0 ? total + effectiveOffset : total;
@@ -185,12 +197,13 @@ class UpdateService {
         }
         await partialFile.rename(file.path);
         if (expected != null) {
+          final fileLen = await file.length();
           final result = await _verifyChecksum(file, expected, useSha256);
           if (!result.ok) {
             final algo = useSha256 ? 'SHA256' : 'SHA1';
             final detail = result.computedHash != null ? ': expected $expected, got ${result.computedHash}' : '';
             final msg = '$algo checksum mismatch$detail';
-            debugPrint('[gg_updater] $msg');
+            debugPrint('[gg_updater] $msg (file: $fileLen bytes)');
             _emit(DownloadProgress(received: 0, total: 0, error: msg));
             _cleanup();
             return;
@@ -304,11 +317,12 @@ class UpdateService {
 
     final expected = (sha256Checksum ?? sha1Checksum)?.toLowerCase().trim();
     if (expected != null) {
+      final fileLen = await file.length();
       final result = await _verifyChecksum(file, expected, sha256Checksum != null);
       if (!result.ok) {
         final algo = sha256Checksum != null ? 'SHA256' : 'SHA1';
         final detail = result.computedHash != null ? ': expected $expected, got ${result.computedHash}' : '';
-        debugPrint('[gg_updater] Cache verify failed ($algo)$detail');
+        debugPrint('[gg_updater] Cache verify failed ($algo)$detail (file: $fileLen bytes)');
         return null;
       }
     }
