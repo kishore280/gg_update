@@ -84,22 +84,43 @@ class UpdateService {
     final file = File('${dir.path}/update.apk');
 
     // Cache hit — already downloaded (like AyuGram's updateDownloaded check)
-    if (file.existsSync()) {
-      final len = await file.length();
-      final complete = DownloadProgress(
-        received: len,
-        total: len,
-        isComplete: true,
-        filePath: file.path,
-      );
-      _lastProgress = complete;
-      yield complete;
-      return;
+    // Verify integrity if checksum is available to catch corrupt/partial files.
+    if (await file.exists()) {
+      if (sha256Checksum != null) {
+        final digest = await sha256.bind(file.openRead()).first;
+        if (digest.toString() != sha256Checksum.toLowerCase()) {
+          // Corrupt cache — delete and re-download
+          try { await file.delete(); } catch (_) {}
+        }
+      }
+      // Re-check existence after possible deletion above
+      if (await file.exists()) {
+        final len = await file.length();
+        final complete = DownloadProgress(
+          received: len,
+          total: len,
+          isComplete: true,
+          filePath: file.path,
+        );
+        _lastProgress = complete;
+        yield complete;
+        return;
+      }
     }
 
-    // If already downloading this version, just subscribe to existing stream
-    if (isDownloading && _activeDownloadVersion == version && _broadcastController != null) {
-      yield* _broadcastController!.stream;
+    // If a download is already in progress
+    if (isDownloading) {
+      if (_activeDownloadVersion == version && _broadcastController != null) {
+        // For the same version, just subscribe to the existing stream
+        yield* _broadcastController!.stream;
+      } else {
+        // For a different version, report an error as we can't handle concurrent downloads.
+        yield DownloadProgress(
+          received: 0,
+          total: 0,
+          error: 'Another download for version $_activeDownloadVersion is in progress.',
+        );
+      }
       return;
     }
 
@@ -116,27 +137,72 @@ class UpdateService {
 
     void _emit(DownloadProgress p) {
       _lastProgress = p;
-      if (!(_broadcastController?.isClosed ?? true)) {
-        _broadcastController!.add(p);
+      final controller = _broadcastController;
+      if (controller != null && !controller.isClosed) {
+        controller.add(p);
       }
     }
 
+    // Check for partial download to resume via HTTP Range header.
+    // Dio's download() overwrites the target file, so when resuming we
+    // download the remaining chunk to a separate .chunk file and then
+    // append it to the existing .partial file.
+    final partialFile = File('${file.path}.partial');
+    final chunkFile = File('${file.path}.chunk');
+    int resumeOffset = 0;
+    if (await partialFile.exists()) {
+      resumeOffset = await partialFile.length();
+    }
+
+    // When resuming, Dio writes only the new bytes to chunkFile.
+    // For fresh downloads, Dio writes directly to partialFile.
+    final downloadTarget = resumeOffset > 0 ? chunkFile.path : partialFile.path;
+
     try {
+      int effectiveOffset = resumeOffset;
+
       _dio.download(
         url,
-        file.path,
-        deleteOnError: true,
+        downloadTarget,
+        deleteOnError: false,
         cancelToken: _cancelToken,
+        options: resumeOffset > 0
+            ? Options(headers: {'Range': 'bytes=$resumeOffset-'})
+            : null,
         onReceiveProgress: (received, total) {
-          _emit(DownloadProgress(received: received, total: total));
+          final actualReceived = received + effectiveOffset;
+          final actualTotal = total > 0 ? total + effectiveOffset : total;
+          _emit(DownloadProgress(received: actualReceived, total: actualTotal));
         },
-      ).then((_) async {
+      ).then((response) async {
+        if (resumeOffset > 0) {
+          if (response.statusCode == 200) {
+            // Server ignored Range — chunkFile has the full content.
+            // Replace partial with it.
+            effectiveOffset = 0;
+            if (await partialFile.exists()) await partialFile.delete();
+            await chunkFile.rename(partialFile.path);
+          } else if (response.statusCode == 206) {
+            // Server honoured Range (206) — stream chunk into partial.
+            final sink = partialFile.openWrite(mode: FileMode.writeOnlyAppend);
+            await chunkFile.openRead().pipe(sink);
+            await chunkFile.delete();
+          } else {
+            // Unexpected status code — treat chunkFile as full download.
+            effectiveOffset = 0;
+            if (await partialFile.exists()) await partialFile.delete();
+            await chunkFile.rename(partialFile.path);
+          }
+        }
+        // Rename partial file to final name on success
+        await partialFile.rename(file.path);
         // Verify SHA256 if provided (like ota_update package)
+        // Use streaming hash to avoid loading entire APK into memory.
         if (sha256Checksum != null) {
-          final bytes = await file.readAsBytes();
-          final hash = sha256.convert(bytes).toString();
+          final digest = await sha256.bind(file.openRead()).first;
+          final hash = digest.toString();
           if (hash != sha256Checksum.toLowerCase()) {
-            file.deleteSync();
+            await file.delete();
             _emit(DownloadProgress(
               received: 0,
               total: 0,
@@ -181,15 +247,15 @@ class UpdateService {
     _cancelToken?.cancel('User cancelled');
     _cancelToken = null;
     _lastProgress = null;
-    // Clean partial file (deleteOnError handles Dio errors, but belt-and-suspenders)
     if (_activeDownloadVersion != null) {
       final versionToClean = _activeDownloadVersion!;
       _cleanup();
       try {
         final dir = await _otaDir(versionToClean);
-        final file = File('${dir.path}/update.apk');
-        if (await file.exists()) {
-          await file.delete();
+        // Clean partial, chunk, and complete files
+        for (final name in ['update.apk.chunk', 'update.apk.partial', 'update.apk']) {
+          final f = File('${dir.path}/$name');
+          if (await f.exists()) await f.delete();
         }
       } catch (_) {
         // Errors during cleanup can be ignored.
@@ -213,33 +279,41 @@ class UpdateService {
   /// Check if an APK is already downloaded for this version.
   Future<bool> isCached(String version) async {
     final dir = await _otaDir(version);
-    return File('${dir.path}/update.apk').existsSync();
+    return File('${dir.path}/update.apk').exists();
   }
 
   /// Get the cached APK file path if it exists, null otherwise.
   Future<String?> cachedFilePath(String version) async {
     final dir = await _otaDir(version);
     final file = File('${dir.path}/update.apk');
-    return file.existsSync() ? file.path : null;
+    return await file.exists() ? file.path : null;
   }
 
   /// Delete all cached APKs.
   Future<void> clearCache() async {
-    final base = await _otaBaseDir();
-    if (base.existsSync()) {
-      base.deleteSync(recursive: true);
-    }
+    try {
+      final base = await _otaBaseDir();
+      if (await base.exists()) {
+        await base.delete(recursive: true);
+      }
+    } catch (_) {}
   }
 
   /// Get total cache size as formatted string.
   Future<String> get cacheSize async {
-    final base = await _otaBaseDir();
-    if (!base.existsSync()) return '0 B';
-    int total = 0;
-    base.listSync(recursive: true).whereType<File>().forEach((f) {
-      total += f.lengthSync();
-    });
-    return formatBytes(total);
+    try {
+      final base = await _otaBaseDir();
+      if (!await base.exists()) return '0 B';
+      int total = 0;
+      await for (final entity in base.list(recursive: true)) {
+        if (entity is File) {
+          total += await entity.length();
+        }
+      }
+      return formatBytes(total);
+    } catch (_) {
+      return '0 B';
+    }
   }
 
   // ─── FORCE UPDATE PERSISTENCE ────────────────────────────────────
@@ -247,34 +321,40 @@ class UpdateService {
 
   /// Persist a force update so it re-shows after app restart.
   Future<void> savePendingUpdate(UpdateInfo info) async {
-    _currentVersion ??= (await PackageInfo.fromPlatform()).version;
-    final base = await _otaBaseDir();
-    if (!base.existsSync()) base.createSync(recursive: true);
-    final file = File('${base.path}/pending_update.json');
-    file.writeAsStringSync(jsonEncode({
-      'status': info.status.name,
-      'latest_version': info.latestVersion,
-      'min_version': info.minVersion,
-      'download_url': info.downloadUrl,
-      'file_size': info.fileSize,
-      'sha256': info.sha256,
-      'changelog': info.changelog,
-      'message': info.message,
-      'maintenance_message': info.maintenanceMessage,
-      'checked_at_version': _currentVersion,
-    }));
+    try {
+      _currentVersion ??= (await PackageInfo.fromPlatform()).version;
+      final base = await _otaBaseDir();
+      if (!await base.exists()) {
+        await base.create(recursive: true);
+      }
+      final file = File('${base.path}/pending_update.json');
+      await file.writeAsString(jsonEncode({
+        'status': info.status.name,
+        'latest_version': info.latestVersion,
+        'min_version': info.minVersion,
+        'download_url': info.downloadUrl,
+        'file_size': info.fileSize,
+        'sha256': info.sha256,
+        'changelog': info.changelog,
+        'message': info.message,
+        'maintenance_message': info.maintenanceMessage,
+        'checked_at_version': _currentVersion,
+      }));
+    } catch (_) {
+      // Best-effort persistence — don't crash the app if disk write fails.
+    }
   }
 
   /// Load persisted force update. Returns null if none or stale.
   Future<UpdateInfo?> loadPendingUpdate() async {
     _currentVersion ??= (await PackageInfo.fromPlatform()).version;
     final file = File('${(await _otaBaseDir()).path}/pending_update.json');
-    if (!file.existsSync()) return null;
+    if (!await file.exists()) return null;
     try {
-      final data = jsonDecode(file.readAsStringSync()) as Map<String, dynamic>;
+      final data = jsonDecode(await file.readAsString()) as Map<String, dynamic>;
       // Stale: app was updated since we saved this
       if (data['checked_at_version'] != _currentVersion) {
-        file.deleteSync();
+        await file.delete();
         return null;
       }
       return UpdateInfo.fromJson(data);
@@ -285,8 +365,10 @@ class UpdateService {
 
   /// Clear persisted force update (called on 10-tap escape or server says none).
   Future<void> clearPendingUpdate() async {
-    final file = File('${(await _otaBaseDir()).path}/pending_update.json');
-    if (file.existsSync()) file.deleteSync();
+    try {
+      final file = File('${(await _otaBaseDir()).path}/pending_update.json');
+      if (await file.exists()) await file.delete();
+    } catch (_) {}
   }
 
   // ─── COOLDOWN PERSISTENCE ────────────────────────────────────────
@@ -295,17 +377,23 @@ class UpdateService {
 
   /// Save the last check timestamp to disk.
   Future<void> saveLastCheckTime(int timestampMs) async {
-    final base = await _otaBaseDir();
-    if (!base.existsSync()) base.createSync(recursive: true);
-    File('${base.path}/last_check.txt').writeAsStringSync('$timestampMs');
+    try {
+      final base = await _otaBaseDir();
+      if (!await base.exists()) {
+        await base.create(recursive: true);
+      }
+      await File('${base.path}/last_check.txt').writeAsString('$timestampMs');
+    } catch (_) {
+      // Best-effort — don't crash the app if disk write fails.
+    }
   }
 
   /// Load the last check timestamp from disk. Returns 0 if none.
   Future<int> loadLastCheckTime() async {
     final file = File('${(await _otaBaseDir()).path}/last_check.txt');
-    if (!file.existsSync()) return 0;
+    if (!await file.exists()) return 0;
     try {
-      return int.parse(file.readAsStringSync().trim());
+      return int.parse((await file.readAsString()).trim());
     } catch (_) {
       return 0;
     }
@@ -321,20 +409,26 @@ class UpdateService {
   Future<Directory> _otaDir(String version) async {
     // Sanitize version to prevent path traversal (e.g. "../../evil")
     final safe = version.replaceAll(RegExp(r'[^a-zA-Z0-9._\-+]'), '_');
-    final dir = Directory('${(await _otaBaseDir()).path}/$safe');
-    if (!dir.existsSync()) dir.createSync(recursive: true);
+    final base = await _otaBaseDir();
+    final dir = Directory('${base.path}/$safe');
+    // Belt-and-suspenders: verify resolved path is still under our base dir
+    final resolved = dir.uri.normalizePath().toFilePath();
+    if (!resolved.startsWith(base.uri.normalizePath().toFilePath())) {
+      throw ArgumentError('Version string resolved outside OTA directory: $version');
+    }
+    if (!await dir.exists()) await dir.create(recursive: true);
     return dir;
   }
 
   /// Delete cached APKs for versions other than [keepVersion].
   Future<void> _cleanOldVersions(String keepVersion) async {
     final base = await _otaBaseDir();
-    if (!base.existsSync()) return;
+    if (!await base.exists()) return;
     final safe = keepVersion.replaceAll(RegExp(r'[^a-zA-Z0-9._\-+]'), '_');
-    for (final entity in base.listSync()) {
+    await for (final entity in base.list()) {
       if (entity is Directory && entity.path.split('/').last != safe) {
         try {
-          entity.deleteSync(recursive: true);
+          await entity.delete(recursive: true);
         } catch (_) {}
       }
     }

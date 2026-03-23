@@ -14,5 +14,13 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/gg_updater_paths" />
         </provider>
+
+        <receiver
+            android:name="com.gg.updater.InstallResultReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.gg.updater.INSTALL_RESULT" />
+            </intent-filter>
+        </receiver>
     </application>
 </manifest>

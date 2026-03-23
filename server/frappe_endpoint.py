@@ -20,6 +20,7 @@
 #   - maintenance_message (Small Text)
 
 import frappe
+from semver import Version
 
 
 @frappe.whitelist(allow_guest=True, methods=["GET"])
@@ -81,9 +82,12 @@ def check_update(platform="android", version="0.0.0"):
 
 
 def _parse_version(v):
-    """Parse '1.2.3' into a tuple (1, 2, 3) for comparison."""
+    """Parse a semver string for comparison.
+
+    Flutter/Dart use semver natively, so python-semver is the natural fit.
+    Handles pre-release (1.0.0-beta < 1.0.0) and build metadata correctly.
+    """
     try:
-        parts = v.replace("v", "").split(".")
-        return tuple(int(p) for p in parts)
-    except Exception:
-        return (0, 0, 0)
+        return Version.parse(v.strip().lstrip("vV"))
+    except ValueError:
+        return Version(0, 0, 0)
