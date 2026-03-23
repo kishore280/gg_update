@@ -20,7 +20,7 @@
 #   - maintenance_message (Small Text)
 
 import frappe
-from packaging.version import Version, InvalidVersion
+from semver import Version
 
 
 @frappe.whitelist(allow_guest=True, methods=["GET"])
@@ -82,17 +82,12 @@ def check_update(platform="android", version="0.0.0"):
 
 
 def _parse_version(v):
-    """Parse a version string for comparison.
+    """Parse a semver string for comparison.
 
-    Uses packaging.version.Version (PEP 440). Normalizes semver-style
-    pre-release suffixes (e.g., '1.0.0-beta') to PEP 440 local segments
-    so they don't cause InvalidVersion.
+    Flutter/Dart use semver natively, so python-semver is the natural fit.
+    Handles pre-release (1.0.0-beta < 1.0.0) and build metadata correctly.
     """
     try:
-        clean = v.strip().lstrip("vV")
-        # Semver uses '-suffix' (e.g., 1.0.0-stable), PEP 440 uses '+local'.
-        # Convert so packaging doesn't reject it.
-        clean = clean.replace("-", "+", 1)
-        return Version(clean)
-    except InvalidVersion:
-        return Version("0.0.0")
+        return Version.parse(v.strip().lstrip("vV"))
+    except ValueError:
+        return Version(0, 0, 0)
