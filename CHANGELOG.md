@@ -4,6 +4,11 @@ All notable changes to `gg_updater` will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [1.3.5] - 2026-03-23
+
+### Fixed
+- Copy `_dio.options.headers` to `_downloadDio` — downloads to auth-protected servers (401/403) now include Authorization, cookies, and other default headers from the caller's Dio instance
+
 ## [1.3.4] - 2026-03-23
 
 ### Fixed
