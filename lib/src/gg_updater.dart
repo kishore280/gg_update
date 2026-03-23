@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:dio/dio.dart';
 
@@ -34,10 +35,9 @@ class GgUpdater {
   }
 
   /// Get the service instance (for manual use).
-  static UpdateService get service {
-    assert(_service != null, 'Call GgUpdater.init() first');
-    return _service!;
-  }
+  ///
+  /// Returns `null` if [init] has not been called.
+  static UpdateService? get service => _service;
 
   /// Check for updates and show the right UI automatically.
   ///
@@ -48,6 +48,7 @@ class GgUpdater {
   /// - [UpdateStatus.maintenance] → pushes maintenance screen
   ///
   /// Returns the [UpdateInfo] so you can do extra stuff if needed.
+  /// Never throws — returns [UpdateInfo.none] on any failure.
   static Future<UpdateInfo> checkAndPrompt(
     BuildContext context, {
     String? endpoint,
@@ -55,11 +56,32 @@ class GgUpdater {
     Dio? dio,
     bool respectCooldown = true,
   }) async {
-    // Allow one-shot usage without init()
-    assert(
-      _service != null || endpoint != null,
-      'Either call GgUpdater.init() first, or pass endpoint to checkAndPrompt().',
-    );
+    try {
+      return await _checkAndPromptInner(
+        context,
+        endpoint: endpoint,
+        headers: headers,
+        dio: dio,
+        respectCooldown: respectCooldown,
+      );
+    } catch (e) {
+      if (kDebugMode) debugPrint('GgUpdater: checkAndPrompt failed: $e');
+      return UpdateInfo.none();
+    }
+  }
+
+  static Future<UpdateInfo> _checkAndPromptInner(
+    BuildContext context, {
+    String? endpoint,
+    Map<String, String>? headers,
+    Dio? dio,
+    bool respectCooldown = true,
+  }) async {
+    if (_service == null && endpoint == null) {
+      throw StateError(
+        'Either call GgUpdater.init() first, or pass endpoint to checkAndPrompt().',
+      );
+    }
     final svc = _service ??
         UpdateService(
           endpoint: endpoint!,
@@ -146,8 +168,26 @@ class GgUpdater {
   }
 
   /// Check only, no UI. For manual handling.
-  static Future<UpdateInfo> check() => service.check();
+  /// Never throws — returns [UpdateInfo.none] on failure.
+  static Future<UpdateInfo> check() async {
+    try {
+      if (_service == null) {
+        throw StateError('Call GgUpdater.init() first');
+      }
+      return await _service!.check();
+    } catch (e) {
+      if (kDebugMode) debugPrint('GgUpdater: check failed: $e');
+      return UpdateInfo.none();
+    }
+  }
 
   /// Clear all cached APKs.
-  static Future<void> clearCache() => service.clearCache();
+  /// Never throws — silently fails on error.
+  static Future<void> clearCache() async {
+    try {
+      await _service?.clearCache();
+    } catch (e) {
+      if (kDebugMode) debugPrint('GgUpdater: clearCache failed: $e');
+    }
+  }
 }
