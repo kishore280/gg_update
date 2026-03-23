@@ -81,9 +81,12 @@ def check_update(platform="android", version="0.0.0"):
 
 
 def _parse_version(v):
-    """Parse '1.2.3' into a tuple (1, 2, 3) for comparison."""
+    """Parse '1.2.3' or '1.2.3-stable' into a tuple (1, 2, 3) for comparison."""
     try:
-        parts = v.replace("v", "").split(".")
+        # Strip leading 'v'/'V', then split on '-' or '+' to remove pre-release/build suffixes
+        # e.g., "1.0.0-stable" → "1.0.0", "2.1.0+42" → "2.1.0"
+        clean = v.strip().lstrip("vV").split("-")[0].split("+")[0]
+        parts = clean.split(".")
         return tuple(int(p) for p in parts)
     except Exception:
         return (0, 0, 0)
