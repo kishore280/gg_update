@@ -137,8 +137,9 @@ class UpdateService {
 
     void _emit(DownloadProgress p) {
       _lastProgress = p;
-      if (!(_broadcastController?.isClosed ?? true)) {
-        _broadcastController!.add(p);
+      final controller = _broadcastController;
+      if (controller != null && !controller.isClosed) {
+        controller.add(p);
       }
     }
 
@@ -150,6 +151,11 @@ class UpdateService {
     }
 
     try {
+      // Track whether the server actually honoured our Range header.
+      // If it returns 200 instead of 206, the response contains the full
+      // file and we must discard the stale partial data.
+      int effectiveOffset = resumeOffset;
+
       _dio.download(
         url,
         partialFile.path,
@@ -159,13 +165,17 @@ class UpdateService {
             ? Options(headers: {'Range': 'bytes=$resumeOffset-'})
             : null,
         onReceiveProgress: (received, total) {
-          // When resuming, `received` is bytes in this request, `total` is remaining.
-          // Adjust to reflect true totals.
-          final actualReceived = received + resumeOffset;
-          final actualTotal = total > 0 ? total + resumeOffset : total;
+          final actualReceived = received + effectiveOffset;
+          final actualTotal = total > 0 ? total + effectiveOffset : total;
           _emit(DownloadProgress(received: actualReceived, total: actualTotal));
         },
-      ).then((_) async {
+      ).then((response) async {
+        // Server ignored Range header — it sent the full file (200, not 206).
+        // Dio already wrote the full content to partialFile, replacing the
+        // stale partial data, so just reset our offset accounting.
+        if (resumeOffset > 0 && response.statusCode == 200) {
+          effectiveOffset = 0;
+        }
         // Rename partial file to final name on success
         await partialFile.rename(file.path);
         // Verify SHA256 if provided (like ota_update package)
@@ -381,7 +391,13 @@ class UpdateService {
   Future<Directory> _otaDir(String version) async {
     // Sanitize version to prevent path traversal (e.g. "../../evil")
     final safe = version.replaceAll(RegExp(r'[^a-zA-Z0-9._\-+]'), '_');
-    final dir = Directory('${(await _otaBaseDir()).path}/$safe');
+    final base = await _otaBaseDir();
+    final dir = Directory('${base.path}/$safe');
+    // Belt-and-suspenders: verify resolved path is still under our base dir
+    final resolved = dir.uri.normalizePath().toFilePath();
+    if (!resolved.startsWith(base.uri.normalizePath().toFilePath())) {
+      throw ArgumentError('Version string resolved outside OTA directory: $version');
+    }
     if (!await dir.exists()) await dir.create(recursive: true);
     return dir;
   }

@@ -6,8 +6,10 @@ enum UpdateStatus {
   maintenance;
 
   static UpdateStatus fromString(String? value) {
+    if (value == null) return UpdateStatus.none;
+    final lower = value.toLowerCase();
     return UpdateStatus.values.firstWhere(
-      (e) => e.name == value,
+      (e) => e.name == lower,
       orElse: () => UpdateStatus.none,
     );
   }
