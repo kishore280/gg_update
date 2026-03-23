@@ -1,8 +1,38 @@
 import 'package:flutter/services.dart';
 
+/// Result of an APK installation attempt, received via [EventChannel].
+class InstallResult {
+  final bool success;
+  final String message;
+
+  const InstallResult({required this.success, required this.message});
+
+  factory InstallResult.fromMap(Map<dynamic, dynamic> map) {
+    return InstallResult(
+      success: map['status'] == 'success',
+      message: (map['message'] as String?) ?? '',
+    );
+  }
+
+  @override
+  String toString() => 'InstallResult(success: $success, message: $message)';
+}
+
 /// Wraps the native Kotlin plugin for APK installation.
 class ApkInstaller {
   static const _channel = MethodChannel('com.gg.updater');
+  static const _statusChannel = EventChannel('com.gg.updater/installStatus');
+
+  /// Stream of install results from the native [PackageInstaller].
+  ///
+  /// Emits an [InstallResult] after each installation attempt completes
+  /// (success or failure). Listen to this before calling [install] to
+  /// capture the outcome.
+  static Stream<InstallResult> get installStatus {
+    return _statusChannel.receiveBroadcastStream().map(
+          (event) => InstallResult.fromMap(event as Map<dynamic, dynamic>),
+        );
+  }
 
   /// Install an APK from a local file path.
   /// Triggers Android's native package installer.

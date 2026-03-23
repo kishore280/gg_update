@@ -8,6 +8,7 @@ import android.content.pm.PackageInstaller
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
+import android.util.Log
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.embedding.engine.plugins.activity.ActivityAware
 import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
@@ -27,10 +28,12 @@ class GgUpdaterPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Activity
         context = binding.applicationContext
         channel = MethodChannel(binding.binaryMessenger, "com.gg.updater")
         channel.setMethodCallHandler(this)
+        InstallResultBroadcast.register(binding.binaryMessenger)
     }
 
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         channel.setMethodCallHandler(null)
+        InstallResultBroadcast.unregister()
         context = null
     }
 
@@ -100,7 +103,7 @@ class GgUpdaterPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Activity
             installViaPackageInstaller(ctx, file)
             return
         } catch (e: Exception) {
-            // Fall back to ACTION_VIEW intent
+            Log.w(TAG, "PackageInstaller failed, falling back to intent", e)
         }
 
         installViaIntent(ctx, file)
@@ -173,6 +176,7 @@ class GgUpdaterPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Activity
     }
 
     companion object {
+        private const val TAG = "GgUpdaterPlugin"
         private const val INSTALL_ACTION = "com.gg.updater.INSTALL_RESULT"
     }
 }
